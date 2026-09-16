@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     api_url: str = "http://localhost:8000"
 
     database_url: str = ""
+    test_database_url: str = ""
     redis_url: str = ""
 
     github_client_id: str = ""

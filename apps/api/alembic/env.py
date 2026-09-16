@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -11,6 +12,7 @@ from apps.api.app.models import Base
 
 class Settings(BaseSettings):
     database_url: str = ""
+    test_database_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -25,9 +27,13 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+database_url = (
+    settings.test_database_url if os.getenv("REPOPILOT_TEST_DB") == "1" else settings.database_url
+)
+
 config.set_main_option(
     "sqlalchemy.url",
-    settings.database_url.replace("%", "%%"),
+    database_url.replace("%", "%%"),
 )
 
 target_metadata = Base.metadata
