@@ -1,6 +1,10 @@
 from apps.api.app.models.agent_message import AgentMessage, AgentMessageRole
 from apps.api.app.models.agent_run import AgentRun, AgentRunStatus
 from apps.api.app.models.base import Base, TimestampMixin
+from apps.api.app.models.file_change import (
+    FileChange,
+    FileChangeOperation,
+)
 from apps.api.app.models.repository import Repository
 from apps.api.app.models.task import Task, TaskStatus
 from apps.api.app.models.task_step import AgentType, TaskStep, TaskStepStatus
@@ -21,6 +25,8 @@ __all__ = [
     "TaskStepStatus",
     "ToolCall",
     "ToolCallStatus",
+    "FileChange",
+    "FileChangeOperation",
     "TimestampMixin",
     "User",
 ]
