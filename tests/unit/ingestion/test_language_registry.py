@@ -75,3 +75,20 @@ def test_registry_creates_javascript_parser() -> None:
 
     assert parser is not None
     assert parser.__class__.__name__ == "JavaScriptParser"
+
+def test_registry_resolves_typescript_extensions() -> None:
+    typescript = DEFAULT_LANGUAGE_REGISTRY.get_by_extension(".ts")
+    tsx = DEFAULT_LANGUAGE_REGISTRY.get_by_extension(".tsx")
+
+    assert typescript is not None
+    assert typescript.name == "typescript"
+
+    assert tsx is not None
+    assert tsx.name == "typescript"
+
+
+def test_registry_creates_typescript_parser() -> None:
+    parser = DEFAULT_LANGUAGE_REGISTRY.get_parser(".ts")
+
+    assert parser is not None
+    assert parser.__class__.__name__ == "TypeScriptParser"

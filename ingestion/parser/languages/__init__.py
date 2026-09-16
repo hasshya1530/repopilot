@@ -5,6 +5,7 @@ from ingestion.parser.languages.base import (
 )
 from ingestion.parser.languages.javascript import JavaScriptParser
 from ingestion.parser.languages.python import PythonParser
+from ingestion.parser.languages.typescript import TypeScriptParser
 
 __all__ = [
     "CodeSymbol",
@@ -12,4 +13,5 @@ __all__ = [
     "LanguageParser",
     "PythonParser",
     "SymbolType",
+    "TypeScriptParser"
 ]
