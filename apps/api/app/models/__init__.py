@@ -5,6 +5,11 @@ from apps.api.app.models.file_change import (
     FileChange,
     FileChangeOperation,
 )
+from apps.api.app.models.pull_request import (
+    ApprovalStatus,
+    PullRequest,
+    PullRequestStatus,
+)
 from apps.api.app.models.repository import Repository
 from apps.api.app.models.task import Task, TaskStatus
 from apps.api.app.models.task_step import AgentType, TaskStep, TaskStepStatus
@@ -30,6 +35,9 @@ __all__ = [
     "FileChangeOperation",
     "TestRun",
     "TestRunStatus",
+    "ApprovalStatus",
+    "PullRequest",
+    "PullRequestStatus",
     "TimestampMixin",
     "User",
 ]
