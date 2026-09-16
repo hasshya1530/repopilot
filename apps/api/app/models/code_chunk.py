@@ -78,7 +78,7 @@ class CodeChunk(TimestampMixin, Base):
     )
 
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(),
+        Vector(768),
         nullable=True,
     )
 

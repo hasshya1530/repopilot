@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     model_name: str = ""
     ollama_base_url: str = "http://localhost:11434"
 
-    embedding_provider: str = "local"
-    embedding_model: str = ""
+    embedding_provider: str = "ollama"
+    embedding_model: str = "nomic-embed-text"
     vector_dimension: int | None = None
 
     sandbox_enabled: bool = True
