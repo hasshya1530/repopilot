@@ -1,3 +1,7 @@
+from apps.api.app.schemas.repository import (
+    RepositoryCreate,
+    RepositoryResponse,
+)
 from apps.api.app.schemas.task import (
     TaskCreate,
     TaskResponse,
@@ -5,6 +9,8 @@ from apps.api.app.schemas.task import (
 )
 
 __all__ = [
+    "RepositoryCreate",
+    "RepositoryResponse",
     "TaskCreate",
     "TaskResponse",
     "TaskStatusUpdate",
