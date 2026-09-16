@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.app.api.v1.tasks import router as tasks_router
 from apps.api.app.core.database import get_db
 from apps.api.app.core.health import check_database, check_redis
 from apps.api.app.core.redis import get_redis
@@ -12,6 +13,11 @@ app = FastAPI(
     title="RepoPilot API",
     version="0.1.0",
     description="Backend API for RepoPilot.",
+)
+
+app.include_router(
+    tasks_router,
+    prefix="/api/v1",
 )
 
 
