@@ -1,4 +1,4 @@
-from ingestion.parser.languages import LanguageParser, PythonParser
+from ingestion.parser.languages import JavaScriptParser, LanguageParser, PythonParser
 from ingestion.parser.registry.languages import LanguageDefinition
 
 
@@ -44,5 +44,10 @@ DEFAULT_LANGUAGE_REGISTRY = LanguageRegistry(
             extensions=frozenset({".py"}),
             parser_factory=PythonParser,
         ),
-    )
+        LanguageDefinition(
+            name="javascript",
+            extensions=frozenset({".js", ".jsx"}),
+            parser_factory=JavaScriptParser,
+        ),
+    ),
 )

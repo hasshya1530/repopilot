@@ -58,3 +58,20 @@ def test_registry_supports_multiple_extensions() -> None:
 
     assert registry.get_by_extension(".py") is not None
     assert registry.get_by_extension(".pyw") is not None
+
+def test_registry_resolves_javascript_extensions() -> None:
+    javascript = DEFAULT_LANGUAGE_REGISTRY.get_by_extension(".js")
+    jsx = DEFAULT_LANGUAGE_REGISTRY.get_by_extension(".jsx")
+
+    assert javascript is not None
+    assert javascript.name == "javascript"
+
+    assert jsx is not None
+    assert jsx.name == "javascript"
+
+
+def test_registry_creates_javascript_parser() -> None:
+    parser = DEFAULT_LANGUAGE_REGISTRY.get_parser(".js")
+
+    assert parser is not None
+    assert parser.__class__.__name__ == "JavaScriptParser"
