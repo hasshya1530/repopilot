@@ -8,6 +8,7 @@ from apps.api.app.models.file_change import (
 from apps.api.app.models.repository import Repository
 from apps.api.app.models.task import Task, TaskStatus
 from apps.api.app.models.task_step import AgentType, TaskStep, TaskStepStatus
+from apps.api.app.models.test_run import TestRun, TestRunStatus
 from apps.api.app.models.tool_call import ToolCall, ToolCallStatus
 from apps.api.app.models.user import User
 
@@ -27,6 +28,8 @@ __all__ = [
     "ToolCallStatus",
     "FileChange",
     "FileChangeOperation",
+    "TestRun",
+    "TestRunStatus",
     "TimestampMixin",
     "User",
 ]
