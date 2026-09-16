@@ -90,3 +90,88 @@ def test_discover_files_requires_existing_path(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError):
         discover_files(missing)
+
+def test_discover_files_respects_gitignore(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text(
+        """
+.env
+*.log
+generated/
+""".strip(),
+        encoding="utf-8",
+    )
+
+    (tmp_path / "main.py").write_text(
+        "print('hello')",
+        encoding="utf-8",
+    )
+
+    (tmp_path / ".env").write_text(
+        "SECRET=value",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "debug.log").write_text(
+        "debug",
+        encoding="utf-8",
+    )
+
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    (generated / "output.py").write_text(
+        "generated",
+        encoding="utf-8",
+    )
+
+    files = discover_files(tmp_path)
+
+    assert [file.relative_path for file in files] == [
+        ".gitignore",
+        "main.py",
+    ]
+
+
+def test_discover_files_can_disable_gitignore(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".gitignore").write_text(
+        "*.log",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "main.py").write_text(
+        "print('hello')",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "debug.log").write_text(
+        "debug",
+        encoding="utf-8",
+    )
+
+    config = DiscoveryConfig(
+        respect_gitignore=False,
+    )
+
+    files = discover_files(tmp_path, config)
+
+    assert [file.relative_path for file in files] == [
+        ".gitignore",
+        "debug.log",
+        "main.py",
+    ]
+
+
+def test_discover_files_handles_missing_gitignore(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "main.py").write_text(
+        "print('hello')",
+        encoding="utf-8",
+    )
+
+    files = discover_files(tmp_path)
+
+    assert [file.relative_path for file in files] == [
+        "main.py",
+    ]
