@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
 
@@ -6,167 +8,164 @@ from tools.github.client import GitHubAPIError, GitHubClient
 
 @pytest.mark.asyncio
 async def test_get_authenticated_user() -> None:
-    client = GitHubClient("test-token")
-
     response = httpx.Response(
         200,
         json={
             "id": 123,
-            "login": "test-user",
+            "login": "hasshya1530",
         },
     )
 
-    async def mock_request(
-        method: str,
-        url: str,
-        **kwargs: object,
-    ) -> httpx.Response:
-        assert method == "GET"
-        assert url == "/user"
+    with patch("tools.github.client.httpx.AsyncClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.request = AsyncMock(return_value=response)
+        mock_client.aclose = AsyncMock()
 
-        return response
+        client = GitHubClient("test-token")
 
-    client._client.request = mock_request  # type: ignore[method-assign]
+        result = await client.get_authenticated_user()
 
-    result = await client.get_authenticated_user()
+        assert result["id"] == 123
+        assert result["login"] == "hasshya1530"
 
-    assert result == {
-        "id": 123,
-        "login": "test-user",
-    }
+        mock_client.request.assert_awaited_once_with(
+            "GET",
+            "/user",
+        )
 
-    await client.close()
+        await client.close()
 
 
 @pytest.mark.asyncio
 async def test_get_repository() -> None:
-    client = GitHubClient("test-token")
-
     response = httpx.Response(
         200,
         json={
-            "id": 123,
-            "full_name": "owner/repository",
+            "id": 123456,
+            "name": "repopilot",
+            "full_name": "hasshya1530/repopilot",
         },
     )
 
-    async def mock_request(
-        method: str,
-        url: str,
-        **kwargs: object,
-    ) -> httpx.Response:
-        assert method == "GET"
-        assert url == "/repos/owner/repository"
+    with patch("tools.github.client.httpx.AsyncClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.request = AsyncMock(return_value=response)
+        mock_client.aclose = AsyncMock()
 
-        return response
+        client = GitHubClient("test-token")
 
-    client._client.request = mock_request  # type: ignore[method-assign]
+        result = await client.get_repository(
+            "hasshya1530",
+            "repopilot",
+        )
 
-    result = await client.get_repository(
-        "owner",
-        "repository",
-    )
+        assert result["id"] == 123456
+        assert result["name"] == "repopilot"
+        assert result["full_name"] == "hasshya1530/repopilot"
 
-    assert result["full_name"] == "owner/repository"
+        mock_client.request.assert_awaited_once_with(
+            "GET",
+            "/repos/hasshya1530/repopilot",
+        )
 
-    await client.close()
+        await client.close()
 
 
 @pytest.mark.asyncio
 async def test_get_issue() -> None:
-    client = GitHubClient("test-token")
-
     response = httpx.Response(
         200,
         json={
+            "id": 987654,
             "number": 42,
-            "title": "Add pagination",
+            "title": "Add repository indexing",
         },
     )
 
-    async def mock_request(
-        method: str,
-        url: str,
-        **kwargs: object,
-    ) -> httpx.Response:
-        assert method == "GET"
-        assert url == "/repos/owner/repository/issues/42"
+    with patch("tools.github.client.httpx.AsyncClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.request = AsyncMock(return_value=response)
+        mock_client.aclose = AsyncMock()
 
-        return response
+        client = GitHubClient("test-token")
 
-    client._client.request = mock_request  # type: ignore[method-assign]
+        result = await client.get_issue(
+            "hasshya1530",
+            "repopilot",
+            42,
+        )
 
-    result = await client.get_issue(
-        "owner",
-        "repository",
-        42,
-    )
+        assert result["id"] == 987654
+        assert result["number"] == 42
+        assert result["title"] == "Add repository indexing"
 
-    assert result["number"] == 42
-    assert result["title"] == "Add pagination"
+        mock_client.request.assert_awaited_once_with(
+            "GET",
+            "/repos/hasshya1530/repopilot/issues/42",
+        )
 
-    await client.close()
+        await client.close()
 
 
 @pytest.mark.asyncio
 async def test_get_file_with_ref() -> None:
-    client = GitHubClient("test-token")
-
     response = httpx.Response(
         200,
         json={
-            "name": "main.py",
-            "path": "src/main.py",
+            "name": "README.md",
+            "path": "README.md",
+            "content": "SGVsbG8=",
         },
     )
 
-    async def mock_request(
-        method: str,
-        url: str,
-        **kwargs: object,
-    ) -> httpx.Response:
-        assert method == "GET"
-        assert url == "/repos/owner/repository/contents/src/main.py"
-        assert kwargs["params"] == {"ref": "main"}
+    with patch("tools.github.client.httpx.AsyncClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.request = AsyncMock(return_value=response)
+        mock_client.aclose = AsyncMock()
 
-        return response
+        client = GitHubClient("test-token")
 
-    client._client.request = mock_request  # type: ignore[method-assign]
+        result = await client.get_file(
+            "hasshya1530",
+            "repopilot",
+            "README.md",
+            ref="main",
+        )
 
-    result = await client.get_file(
-        "owner",
-        "repository",
-        "src/main.py",
-        ref="main",
-    )
+        assert result["name"] == "README.md"
+        assert result["path"] == "README.md"
+        assert result["content"] == "SGVsbG8="
 
-    assert result["path"] == "src/main.py"
+        mock_client.request.assert_awaited_once_with(
+            "GET",
+            "/repos/hasshya1530/repopilot/contents/README.md",
+            params={"ref": "main"},
+        )
 
-    await client.close()
+        await client.close()
 
 
 @pytest.mark.asyncio
-async def test_api_error() -> None:
-    client = GitHubClient("test-token")
-
+async def test_github_api_error() -> None:
     response = httpx.Response(
         404,
         text='{"message":"Not Found"}',
     )
 
-    async def mock_request(
-        method: str,
-        url: str,
-        **kwargs: object,
-    ) -> httpx.Response:
-        return response
+    with patch("tools.github.client.httpx.AsyncClient") as mock_client_class:
+        mock_client = mock_client_class.return_value
+        mock_client.request = AsyncMock(return_value=response)
+        mock_client.aclose = AsyncMock()
 
-    client._client.request = mock_request  # type: ignore[method-assign]
+        client = GitHubClient("test-token")
 
-    with pytest.raises(GitHubAPIError, match="404"):
-        await client.get_repository(
-            "owner",
-            "repository",
-        )
+        with pytest.raises(
+            GitHubAPIError,
+            match="GitHub API request failed: 404",
+        ):
+            await client.get_repository(
+                "hasshya1530",
+                "does-not-exist",
+            )
 
-    await client.close()
+        await client.close()
