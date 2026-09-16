@@ -94,7 +94,9 @@ class CodeChunk(TimestampMixin, Base):
             "file_path",
             "start_line",
             "end_line",
-            name="uq_code_chunks_repository_commit_location",
+            "symbol_name",
+            "symbol_type",
+            name="uq_code_chunks_repository_commit_symbol",
         ),
         Index(
             "ix_code_chunks_repository_id",
