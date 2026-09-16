@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 from ingestion.parser.languages import LanguageParser
 
-
 ParserFactory = Callable[[], LanguageParser]
 
 

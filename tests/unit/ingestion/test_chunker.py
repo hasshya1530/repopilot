@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ingestion.chunker import CodeChunker
 from ingestion.parser.files import RepositoryFile
-from ingestion.parser.languages import PythonParser, SymbolType
+from ingestion.parser.languages import SymbolType
 
 
 def make_repository_file(
@@ -28,7 +28,7 @@ def test_chunker_creates_chunks_for_symbols(tmp_path: Path) -> None:
 
     repository_file = make_repository_file(tmp_path, source)
 
-    chunks = CodeChunker(PythonParser()).chunk_file(repository_file)
+    chunks = CodeChunker().chunk_file(repository_file)
 
     assert len(chunks) == 3
 
@@ -40,7 +40,7 @@ def test_chunker_preserves_file_path(tmp_path: Path) -> None:
 
     repository_file = make_repository_file(tmp_path, source)
 
-    chunks = CodeChunker(PythonParser()).chunk_file(repository_file)
+    chunks = CodeChunker().chunk_file(repository_file)
 
     function_chunk = next(chunk for chunk in chunks if chunk.symbol_type == SymbolType.FUNCTION)
 
@@ -55,7 +55,7 @@ def test_chunker_preserves_symbol_metadata(tmp_path: Path) -> None:
 
     repository_file = make_repository_file(tmp_path, source)
 
-    chunks = CodeChunker(PythonParser()).chunk_file(repository_file)
+    chunks = CodeChunker().chunk_file(repository_file)
 
     method = next(chunk for chunk in chunks if chunk.symbol_type == SymbolType.METHOD)
 
@@ -70,7 +70,7 @@ def test_chunker_extracts_exact_source(tmp_path: Path) -> None:
 
     repository_file = make_repository_file(tmp_path, source)
 
-    chunks = CodeChunker(PythonParser()).chunk_file(repository_file)
+    chunks = CodeChunker().chunk_file(repository_file)
 
     function = next(chunk for chunk in chunks if chunk.symbol_type == SymbolType.FUNCTION)
 
@@ -86,9 +86,26 @@ def test_chunker_tracks_line_ranges(tmp_path: Path) -> None:
 
     repository_file = make_repository_file(tmp_path, source)
 
-    chunks = CodeChunker(PythonParser()).chunk_file(repository_file)
+    chunks = CodeChunker().chunk_file(repository_file)
 
     method = next(chunk for chunk in chunks if chunk.symbol_type == SymbolType.METHOD)
 
     assert method.start_line == 2
     assert method.end_line == 4
+
+def test_chunker_skips_unsupported_language(tmp_path: Path) -> None:
+    source = "some unknown format"
+
+    file_path = tmp_path / "example.xyz"
+    file_path.write_text(source, encoding="utf-8")
+
+    repository_file = RepositoryFile(
+        path=file_path,
+        relative_path="example.xyz",
+        size_bytes=file_path.stat().st_size,
+        extension=".xyz",
+    )
+
+    chunks = CodeChunker().chunk_file(repository_file)
+
+    assert chunks == []

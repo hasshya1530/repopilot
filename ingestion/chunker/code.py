@@ -1,16 +1,29 @@
-
 from ingestion.chunker.models import CodeChunk
 from ingestion.parser.files import RepositoryFile
-from ingestion.parser.languages import CodeSymbol, LanguageParser
+from ingestion.parser.languages import CodeSymbol
+from ingestion.parser.registry import DEFAULT_LANGUAGE_REGISTRY, LanguageRegistry
 
 
 class CodeChunker:
-    def __init__(self, parser: LanguageParser) -> None:
-        self._parser = parser
+    def __init__(
+        self,
+        registry: LanguageRegistry = DEFAULT_LANGUAGE_REGISTRY,
+    ) -> None:
+        self._registry = registry
 
-    def chunk_file(self, repository_file: RepositoryFile) -> list[CodeChunk]:
+    def chunk_file(
+        self,
+        repository_file: RepositoryFile,
+    ) -> list[CodeChunk]:
+        parser = self._registry.get_parser(
+            repository_file.extension,
+        )
+
+        if parser is None:
+            return []
+
         source = repository_file.path.read_bytes()
-        symbols = self._parser.parse(source)
+        symbols = parser.parse(source)
 
         chunks: list[CodeChunk] = []
 
