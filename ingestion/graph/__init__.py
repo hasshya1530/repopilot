@@ -9,6 +9,7 @@ from ingestion.graph.parsers import (
     PythonRelationshipParser,
     RelationshipParser,
 )
+from ingestion.graph.resolver import SymbolResolver
 from ingestion.graph.service import RepositoryGraphService
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "RepositorySymbol",
     "SymbolEdge",
     "SymbolRelation",
+    "SymbolResolver",
     "SymbolRelationship",
 ]
