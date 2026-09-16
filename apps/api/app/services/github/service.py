@@ -36,7 +36,11 @@ class GitHubService:
         repository = result.scalar_one_or_none()
 
         values = {
-            "owner": self._get_string(data, "owner", "login"),
+            "owner": self._get_string(
+                data,
+                "owner",
+                "login",
+            ),
             "name": self._get_string(data, "name"),
             "full_name": self._get_string(data, "full_name"),
             "github_repo_id": github_repo_id,
@@ -82,25 +86,18 @@ class GitHubService:
             issue_number,
         )
 
-        existing = await self.session.execute(
+        result = await self.session.execute(
             select(Task).where(
                 Task.repository_id == repository.id,
                 Task.issue_number == issue_number,
             )
         )
 
-        task = existing.scalar_one_or_none()
+        task = result.scalar_one_or_none()
 
+        external_issue_id = self._get_int(data, "id")
         title = self._get_string(data, "title")
-        description = self._get_optional_string(
-            data,
-            "body",
-        )
-
-        external_issue_id = self._get_int(
-            data,
-            "id",
-        )
+        description = self._get_optional_string(data, "body")
 
         if task is None:
             task = Task(
