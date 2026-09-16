@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from apps.api.app.core.database import async_session_factory
-from apps.api.app.models.code_chunk import CodeChunk
+from apps.api.app.models.code_chunk import CodeChunk as CodeChunkModel
 from apps.api.app.models.repository import Repository
 from ingestion.embeddings.base import EmbeddingProvider
 from ingestion.retrieval import CodeRetrievalService
@@ -48,10 +48,10 @@ async def test_vector_search_ranks_similar_chunk_first() -> None:
         clone_url="https://github.com/repopilot-test/retrieval-test.git",
     )
 
-    authentication_chunk = CodeChunk(
+    authentication_chunk = CodeChunkModel(
         repository_id=repository_id,
         file_path="src/auth.py",
-        content=("def refresh_access_token():\n    return refresh_token()"),
+        content="def refresh_access_token():\n    return refresh_token()",
         symbol_name="refresh_access_token",
         symbol_type="function",
         start_line=1,
@@ -62,10 +62,10 @@ async def test_vector_search_ranks_similar_chunk_first() -> None:
         embedding=authentication_embedding,
     )
 
-    unrelated_chunk = CodeChunk(
+    unrelated_chunk = CodeChunkModel(
         repository_id=repository_id,
         file_path="src/math.py",
-        content=("def calculate_total(items):\n    return sum(items)"),
+        content="def calculate_total(items):\n    return sum(items)",
         symbol_name="calculate_total",
         symbol_type="function",
         start_line=1,
