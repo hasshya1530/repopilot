@@ -48,6 +48,9 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: tests that exercise real external services or infrastructure",
+]
 
 [tool.mypy]
 python_version = "3.12"
