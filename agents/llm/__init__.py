@@ -4,6 +4,7 @@ from agents.llm.errors import (
     LLMRequestError,
     LLMResponseError,
 )
+from agents.llm.factory import create_llm_provider
 from agents.llm.models import LLMMessage, LLMRequest, LLMResponse
 from agents.llm.provider import LLMProvider
 
@@ -16,4 +17,5 @@ __all__ = [
     "LLMRequestError",
     "LLMResponse",
     "LLMResponseError",
+    "create_llm_provider",
 ]
