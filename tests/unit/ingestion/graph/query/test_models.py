@@ -89,10 +89,12 @@ def test_impact_analysis_result_contains_affected_symbols_and_files() -> None:
         symbol_id=symbol_id,
         affected_symbols=(affected_one, affected_two),
         affected_files=("auth.py", "api.py"),
+        dependencies=(),
         max_depth=3,
     )
 
     assert result.symbol_id == symbol_id
     assert result.affected_symbols == (affected_one, affected_two)
     assert result.affected_files == ("auth.py", "api.py")
+    assert result.dependencies == ()
     assert result.max_depth == 3
