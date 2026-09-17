@@ -50,6 +50,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: tests that exercise real external services or infrastructure",
+    "openrouter: tests that require a live OpenRouter API connection",
 ]
 
 [tool.mypy]
