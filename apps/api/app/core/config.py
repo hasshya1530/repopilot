@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     model_name: str = ""
     ollama_base_url: str = "http://localhost:11434"
 
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_api_key: str | None = None
+    openrouter_site_url: str | None = None
+    openrouter_app_name: str = "RepoPilot"
+
     embedding_provider: str = "ollama"
     embedding_model: str = "nomic-embed-text"
     vector_dimension: int | None = None
