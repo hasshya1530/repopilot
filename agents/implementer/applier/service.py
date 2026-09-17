@@ -48,7 +48,6 @@ class ChangeApplier:
 
         for change in result.changes:
             target = self._resolve_target(change.file_path)
-
             self._validate_change(change, target)
 
             old_content = (
@@ -113,7 +112,11 @@ class ChangeApplier:
 
         return target
 
-    def _validate_change(self, change: CodeChange, target: Path) -> None:
+    def _validate_change(
+        self,
+        change: CodeChange,
+        target: Path,
+    ) -> None:
         if change.operation == ChangeOperation.CREATE:
             if target.exists():
                 raise ChangeApplicationConflictError(
@@ -152,7 +155,11 @@ class ChangeApplier:
                     f"Delete change must not contain content: {change.file_path}"
                 )
 
-    def _apply_change(self, change: CodeChange, target: Path) -> None:
+    def _apply_change(
+        self,
+        change: CodeChange,
+        target: Path,
+    ) -> None:
         if change.operation == ChangeOperation.DELETE:
             target.unlink()
             return
@@ -161,7 +168,10 @@ class ChangeApplier:
         self._atomic_write(target, change.content)
 
     @staticmethod
-    def _atomic_write(target: Path, content: str) -> None:
+    def _atomic_write(
+        target: Path,
+        content: str,
+    ) -> None:
         fd, temp_name = tempfile.mkstemp(
             dir=target.parent,
             prefix=f".{target.name}.",
