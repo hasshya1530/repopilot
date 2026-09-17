@@ -9,6 +9,10 @@ from agents.planner.llm_planner import (
     build_planning_prompt,
 )
 from agents.planner.models import PlanningConstraint, PlanningContext
+from agents.planner.orchestrator import (
+    PlannerOrchestrator,
+    PlanningContextServiceProtocol,
+)
 from agents.planner.plan_models import (
     ImplementationPlan,
     ImplementationStep,
@@ -42,4 +46,6 @@ __all__ = [
     "build_planning_prompt",
     "PlanParsingError",
     "parse_implementation_plan",
+    "PlannerOrchestrator",
+    "PlanningContextServiceProtocol",
 ]
