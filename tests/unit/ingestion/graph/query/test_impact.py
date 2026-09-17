@@ -81,6 +81,10 @@ def test_impact_analysis_finds_direct_dependant() -> None:
     assert results.symbol_id == symbols["auth"]
     assert results.affected_symbols == (symbols["service"],)
     assert results.affected_files == ("services/auth.py",)
+    assert results.dependencies[0].source == symbols["auth"]
+    assert results.dependencies[0].target == symbols["service"]
+    assert results.dependencies[0].relation is SymbolRelation.CALLS
+    assert results.dependencies[0].depth == 1
     assert results.max_depth == 1
 
 
@@ -106,6 +110,18 @@ def test_impact_analysis_follows_multiple_levels() -> None:
         "services/auth.py",
         "api/auth.py",
     )
+
+    assert len(results.dependencies) == 2
+
+    assert results.dependencies[0].source == symbols["auth"]
+    assert results.dependencies[0].target == symbols["service"]
+    assert results.dependencies[0].relation is SymbolRelation.CALLS
+    assert results.dependencies[0].depth == 1
+
+    assert results.dependencies[1].source == symbols["service"]
+    assert results.dependencies[1].target == symbols["api"]
+    assert results.dependencies[1].relation is SymbolRelation.CALLS
+    assert results.dependencies[1].depth == 2
 
     assert results.max_depth == 2
 
@@ -174,6 +190,18 @@ def test_impact_analysis_deduplicates_files() -> None:
     )
     assert results.affected_files == ("services/auth.py",)
 
+    assert len(results.dependencies) == 2
+    assert {dependency.target for dependency in results.dependencies} == {
+        service_one_id,
+        service_two_id,
+    }
+
+    assert all(dependency.source == auth_id for dependency in results.dependencies)
+
+    assert all(dependency.relation is SymbolRelation.CALLS for dependency in results.dependencies)
+
+    assert all(dependency.depth == 1 for dependency in results.dependencies)
+
 
 def test_impact_analysis_returns_empty_for_unknown_symbol() -> None:
     graph, _ = build_graph()
@@ -189,4 +217,5 @@ def test_impact_analysis_returns_empty_for_unknown_symbol() -> None:
 
     assert results.affected_symbols == ()
     assert results.affected_files == ()
+    assert results.dependencies == ()
     assert results.max_depth == 2

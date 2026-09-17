@@ -53,4 +53,5 @@ class ImpactAnalysisResult:
     symbol_id: UUID
     affected_symbols: tuple[UUID, ...]
     affected_files: tuple[str, ...]
+    dependencies: tuple[DependencyResult, ...]
     max_depth: int

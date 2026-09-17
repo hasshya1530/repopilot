@@ -43,6 +43,7 @@ class ImpactAnalysisService:
             symbol_id=query.symbol_id,
             affected_symbols=affected_symbols,
             affected_files=affected_files,
+            dependencies=dependencies,
             max_depth=query.max_depth,
         )
 
