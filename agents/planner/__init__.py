@@ -4,6 +4,7 @@ from agents.planner.errors import (
     PlanningContextError,
 )
 from agents.planner.models import PlanningConstraint, PlanningContext
+from agents.planner.service import PlanningContextService
 
 __all__ = [
     "PlannerConfigurationError",
@@ -11,4 +12,5 @@ __all__ = [
     "PlanningContextError",
     "PlanningConstraint",
     "PlanningContext",
+    "PlanningContextService",
 ]
