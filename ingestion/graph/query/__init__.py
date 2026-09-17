@@ -1,3 +1,4 @@
+from ingestion.graph.query.impact import ImpactAnalysisService
 from ingestion.graph.query.models import (
     DependencyQuery,
     DependencyResult,
@@ -16,4 +17,5 @@ __all__ = [
     "SymbolQuery",
     "SymbolQueryResult",
     "SymbolQueryService",
+    "ImpactAnalysisService",
 ]
