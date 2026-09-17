@@ -19,11 +19,11 @@ from ingestion.graph.query.models import DependencyQuery, ImpactAnalysisResult
 class RepositoryContextServiceProtocol(Protocol):
     async def build_context(
         self,
+        *,
         repository_id: UUID,
         query: str,
-        limit: int = 20,
-    ) -> RepositoryContext:
-        ...
+        limit: int = 10,
+    ) -> RepositoryContext: ...
 
 
 class ImpactAnalysisServiceProtocol(Protocol):
