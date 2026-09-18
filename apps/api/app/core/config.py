@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     github_client_secret: str = ""
     github_redirect_uri: str = ""
     github_token: str = ""
+    github_e2e_repository: str = ""
 
     model_provider: str = "ollama"
     model_name: str = ""

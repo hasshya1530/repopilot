@@ -66,6 +66,7 @@ class PlanningContextService:
             symbols=change_context.symbols,
             dependencies=change_context.dependencies,
             constraints=constraints,
+            change_context=change_context,
         )
 
     @staticmethod

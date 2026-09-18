@@ -1,7 +1,7 @@
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,7 +40,7 @@ class PullRequest(TimestampMixin, Base):
     )
 
     github_pr_id: Mapped[int | None] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=True,
         unique=True,
     )

@@ -3,6 +3,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agents.implementer.models import ChangeOperation, ImplementationResult
+from apps.api.app.models.pull_request import (
+    ApprovalStatus,
+    PullRequest,
+    PullRequestStatus,
+)
 from apps.api.app.models.repository import Repository
 from apps.api.app.models.task import Task, TaskStatus
 from tools.github.client import GitHubAPIError, GitHubClient
@@ -30,7 +36,9 @@ class GitHubService:
         github_repo_id = self._get_int(data, "id")
 
         result = await self.session.execute(
-            select(Repository).where(Repository.github_repo_id == github_repo_id)
+            select(Repository).where(
+                Repository.github_repo_id == github_repo_id
+            )
         )
 
         repository = result.scalar_one_or_none()
@@ -130,6 +138,205 @@ class GitHubService:
             issue_number,
         )
 
+    async def _create_atomic_commit(
+        self,
+        *,
+        repository: Repository,
+        implementation: ImplementationResult,
+        base_sha: str,
+        branch_name: str,
+    ) -> str:
+        commit = await self.client.get_commit(
+            repository.owner,
+            repository.name,
+            base_sha,
+        )
+
+        base_tree = self._get_string(
+            commit,
+            "tree",
+            "sha",
+        )
+
+        tree_entries: list[dict[str, Any]] = []
+
+        for change in implementation.changes:
+            if change.operation == ChangeOperation.DELETE:
+                tree_entries.append(
+                    {
+                        "path": change.file_path,
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": None,
+                    }
+                )
+                continue
+
+            blob = await self.client.create_blob(
+                repository.owner,
+                repository.name,
+                change.content,
+            )
+
+            blob_sha = self._get_string(
+                blob,
+                "sha",
+            )
+
+            tree_entries.append(
+                {
+                    "path": change.file_path,
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob_sha,
+                }
+            )
+
+        tree = await self.client.create_tree(
+            repository.owner,
+            repository.name,
+            base_tree=base_tree,
+            entries=tree_entries,
+        )
+
+        tree_sha = self._get_string(
+            tree,
+            "sha",
+        )
+
+        commit_result = await self.client.create_commit(
+            repository.owner,
+            repository.name,
+            message=f"feat: {implementation.summary}",
+            tree=tree_sha,
+            parents=[base_sha],
+        )
+
+        commit_sha = self._get_string(
+            commit_result,
+            "sha",
+        )
+
+        await self.client.update_git_ref(
+            repository.owner,
+            repository.name,
+            f"heads/{branch_name}",
+            commit_sha,
+        )
+
+        return commit_sha
+
+    async def create_pull_request_from_implementation(
+        self,
+        *,
+        repository: Repository,
+        task: Task,
+        implementation: ImplementationResult,
+        branch_name: str,
+        title: str,
+        body: str,
+    ) -> PullRequest:
+        if not branch_name.strip():
+            raise ValueError("Branch name must not be empty.")
+
+        if not implementation.changes:
+            raise ValueError(
+                "Cannot create a pull request without implementation changes."
+            )
+
+        if task.repository_id != repository.id:
+            raise ValueError(
+                "Task does not belong to the supplied repository."
+            )
+
+        existing_result = await self.session.execute(
+            select(PullRequest).where(
+                PullRequest.task_id == task.id,
+                PullRequest.source_branch == branch_name,
+            )
+        )
+
+        existing = existing_result.scalar_one_or_none()
+
+        if existing is not None:
+            raise ValueError(
+                f"A pull request already exists for branch '{branch_name}'."
+            )
+
+        base_branch = repository.default_branch
+
+        base = await self.client.get_branch(
+            repository.owner,
+            repository.name,
+            base_branch,
+        )
+
+        base_sha = self._get_string(
+            base,
+            "commit",
+            "sha",
+        )
+
+        await self.client.create_branch(
+            repository.owner,
+            repository.name,
+            branch_name,
+            base_sha,
+        )
+
+        await self._create_atomic_commit(
+            repository=repository,
+            implementation=implementation,
+            base_sha=base_sha,
+            branch_name=branch_name,
+        )
+
+        github_pr = await self.client.create_pull_request(
+            repository.owner,
+            repository.name,
+            title=title,
+            body=body,
+            head=branch_name,
+            base=base_branch,
+            draft=True,
+        )
+
+        pr_number = self._get_int(
+            github_pr,
+            "number",
+        )
+
+        github_url = self._get_optional_string(
+            github_pr,
+            "html_url",
+        )
+
+        pull_request = PullRequest(
+            task_id=task.id,
+            github_pr_id=self._get_optional_int(
+                github_pr,
+                "id",
+            ),
+            pr_number=pr_number,
+            title=title,
+            description=body,
+            source_branch=branch_name,
+            target_branch=base_branch,
+            status=PullRequestStatus.DRAFT,
+            approval_status=ApprovalStatus.PENDING,
+            github_url=github_url,
+        )
+
+        self.session.add(pull_request)
+
+        task.branch_name = branch_name
+        task.status = TaskStatus.WAITING_APPROVAL
+
+        await self.session.commit()
+        await self.session.refresh(pull_request)
+
+        return pull_request
+
     @staticmethod
     def _get_string(
         data: dict[str, Any],
@@ -149,7 +356,9 @@ class GitHubService:
         if default is not None:
             return default
 
-        raise GitHubAPIError(f"GitHub response is missing required field: {key}")
+        raise GitHubAPIError(
+            f"GitHub response is missing required field: {key}"
+        )
 
     @staticmethod
     def _get_optional_string(
@@ -164,7 +373,9 @@ class GitHubService:
         if isinstance(value, str):
             return value
 
-        raise GitHubAPIError(f"GitHub response contains invalid field: {key}")
+        raise GitHubAPIError(
+            f"GitHub response contains invalid field: {key}"
+        )
 
     @staticmethod
     def _get_int(
@@ -176,7 +387,26 @@ class GitHubService:
         if isinstance(value, int) and not isinstance(value, bool):
             return value
 
-        raise GitHubAPIError(f"GitHub response is missing required integer field: {key}")
+        raise GitHubAPIError(
+            f"GitHub response is missing required integer field: {key}"
+        )
+
+    @staticmethod
+    def _get_optional_int(
+        data: dict[str, Any],
+        key: str,
+    ) -> int | None:
+        value = data.get(key)
+
+        if value is None:
+            return None
+
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+
+        raise GitHubAPIError(
+            f"GitHub response contains invalid integer field: {key}"
+        )
 
     @staticmethod
     def _get_bool(
@@ -188,4 +418,6 @@ class GitHubService:
         if isinstance(value, bool):
             return value
 
-        raise GitHubAPIError(f"GitHub response is missing required boolean field: {key}")
+        raise GitHubAPIError(
+            f"GitHub response is missing required boolean field: {key}"
+        )

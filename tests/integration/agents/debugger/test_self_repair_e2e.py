@@ -16,7 +16,6 @@ from agents.llm.models import LLMRequest, LLMResponse
 from agents.llm.provider import LLMProvider
 from agents.testing import runner as testing_runner
 
-
 BROKEN_APP = """\
 def add(a: int, b: int) -> int:
     return a - b

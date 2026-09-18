@@ -5,6 +5,7 @@ from ingestion.change_context.models import (
     ChangeContextDependency,
     ChangeContextFile,
     ChangeContextSymbol,
+    RepositoryChangeContext,
 )
 
 
@@ -26,3 +27,4 @@ class PlanningContext:
     symbols: tuple[ChangeContextSymbol, ...]
     dependencies: tuple[ChangeContextDependency, ...]
     constraints: tuple[PlanningConstraint, ...]
+    change_context: RepositoryChangeContext | None = None
