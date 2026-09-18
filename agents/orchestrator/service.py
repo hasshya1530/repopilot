@@ -6,7 +6,7 @@ from uuid import UUID
 
 from agents.approval.models import ApprovalRequest
 from agents.debugger.models import DebuggerResult
-from agents.implementer.models import CodeChange, ImplementationResult
+from agents.implementer.models import ImplementationResult
 from agents.orchestrator.errors import (
     OrchestrationConfigurationError,
     OrchestrationExecutionError,
@@ -85,6 +85,8 @@ class OrchestrationService:
         workspace_path: Path | None = None
 
         try:
+            task_description = task.description or task.title
+
             # ---------------------------------------------------------
             # 1. UNDERSTANDING
             # ---------------------------------------------------------
@@ -94,12 +96,17 @@ class OrchestrationService:
                 current_step=OrchestrationStepType.UNDERSTAND,
             )
 
-            task_description = task.description or task.title
+            repository_path = (
+                await self._dependencies.repository_source.prepare(
+                    repository
+                )
+            )
 
             planning_context = (
                 await self._dependencies.planning_context_builder.build(
                     repository.id,
                     task_description,
+                    repository_path,
                     context_limit=self._config.context_limit,
                     max_depth=self._config.max_depth,
                 )
@@ -124,13 +131,31 @@ class OrchestrationService:
                 current_step=OrchestrationStepType.PLAN,
             )
 
-            plan = await self._dependencies.planner.plan(
-                repository.id,
-                task_description,
-                context_limit=self._config.context_limit,
-                max_depth=self._config.max_depth,
-                max_tokens=self._config.planner_max_tokens,
-            )
+            planner = self._dependencies.planner
+            generate_plan = getattr(planner, "generate_plan", None)
+
+            if callable(generate_plan):
+                plan = await generate_plan(
+                    planning_context,
+                    max_tokens=self._config.planner_max_tokens,
+                )
+            else:
+                # Backward compatibility for legacy planner test doubles.
+                legacy_plan = getattr(planner, "plan", None)
+
+                if not callable(legacy_plan):
+                    raise TypeError(
+                        "Planner dependency must provide either "
+                        "generate_plan() or plan()."
+                    )
+
+                plan = await legacy_plan(
+                    repository.id,
+                    task_description,
+                    context_limit=self._config.context_limit,
+                    max_depth=self._config.max_depth,
+                    max_tokens=self._config.planner_max_tokens,
+                )
 
             artifacts = OrchestrationArtifacts(
                 planning_context=planning_context,
@@ -138,16 +163,7 @@ class OrchestrationService:
             )
 
             # ---------------------------------------------------------
-            # 3. PREPARE REPOSITORY SOURCE
-            # ---------------------------------------------------------
-            repository_path = (
-                await self._dependencies.repository_source.prepare(
-                    repository
-                )
-            )
-
-            # ---------------------------------------------------------
-            # 4. BUILD IMPLEMENTATION CONTEXT
+            # 3. BUILD IMPLEMENTATION CONTEXT
             # ---------------------------------------------------------
             change_context = planning_context.change_context
 
@@ -175,7 +191,7 @@ class OrchestrationService:
             )
 
             # ---------------------------------------------------------
-            # 5. IMPLEMENTATION
+            # 4. IMPLEMENTATION
             # ---------------------------------------------------------
             state = await self._set_task_status(
                 task_id,
@@ -212,7 +228,7 @@ class OrchestrationService:
             )
 
             # ---------------------------------------------------------
-            # 6. CREATE ISOLATED WORKSPACE
+            # 5. CREATE ISOLATED WORKSPACE
             # ---------------------------------------------------------
             workspace_path = (
                 self._dependencies.workspace.create_from_repository(
@@ -221,7 +237,7 @@ class OrchestrationService:
             )
 
             # ---------------------------------------------------------
-            # 7. TESTING
+            # 6. TESTING
             # ---------------------------------------------------------
             state = await self._set_task_status(
                 task_id,
@@ -249,7 +265,7 @@ class OrchestrationService:
             )
 
             # ---------------------------------------------------------
-            # 8. DEBUGGING / SELF-REPAIR
+            # 7. DEBUGGING / SELF-REPAIR
             # ---------------------------------------------------------
             if not execution.succeeded:
                 state = transition(
@@ -282,7 +298,7 @@ class OrchestrationService:
                     plan=plan,
                     implementation_context=implementation_context,
                     implementation=implementation,
-                    execution=execution,
+                    execution=artifacts.execution,
                     debugger=debugger,
                 )
 
@@ -301,7 +317,7 @@ class OrchestrationService:
                     )
 
             # ---------------------------------------------------------
-            # 9. REVIEW
+            # 8. REVIEW
             # ---------------------------------------------------------
             state = await self._set_task_status(
                 task_id,
@@ -338,7 +354,7 @@ class OrchestrationService:
                 )
 
             # ---------------------------------------------------------
-            # 10. CREATE PULL REQUEST
+            # 9. CREATE PULL REQUEST
             # ---------------------------------------------------------
             state = transition(
                 state,
@@ -379,7 +395,7 @@ class OrchestrationService:
             )
 
             # ---------------------------------------------------------
-            # 11. WAIT FOR HUMAN APPROVAL
+            # 10. WAIT FOR HUMAN APPROVAL
             # ---------------------------------------------------------
             state = await self._set_task_status(
                 task_id,
@@ -523,24 +539,29 @@ class OrchestrationService:
         self,
         task_id: UUID,
         state: OrchestrationState,
-        message: str,
+        error: str,
     ) -> OrchestrationResult:
         failed_state = transition(
             state,
             OrchestrationStatus.FAILED,
-            error=message,
+            error=error,
         )
 
-        await self._dependencies.persistence.update_task_status(
+        updated = await self._dependencies.persistence.update_task_status(
             task_id,
             TaskStatus.FAILED,
         )
+
+        if updated is None:
+            raise OrchestrationExecutionError(
+                f"Task {task_id} disappeared while marking it failed."
+            )
 
         return OrchestrationResult(
             task_id=task_id,
             status=failed_state.status,
             summary="Orchestration failed.",
-            error=message,
+            error=error,
         )
 
     @staticmethod
@@ -548,7 +569,7 @@ class OrchestrationService:
         implementation: ImplementationResult,
         debugger: DebuggerResult,
     ) -> ImplementationResult:
-        changes_by_path: dict[str, CodeChange] = {
+        changes_by_path = {
             change.file_path: change
             for change in implementation.changes
         }
@@ -557,19 +578,10 @@ class OrchestrationService:
             for change in attempt.changes:
                 changes_by_path[change.file_path] = change
 
-        merged_changes = tuple(
-            changes_by_path[path]
-            for path in sorted(changes_by_path)
-        )
-
-        if not debugger.attempts:
-            return implementation
-
         return ImplementationResult(
             summary=(
                 f"{implementation.summary} "
-                f"Automated debugging applied "
-                f"{len(merged_changes)} final file change(s)."
+                f"Applied {len(debugger.attempts)} debugger repair attempt(s)."
             ),
-            changes=merged_changes,
+            changes=tuple(changes_by_path.values()),
         )

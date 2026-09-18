@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_e2e_repository: str = ""
 
+    # Repository source / workspace configuration.
+    #
+    # repository_source_root is used by the local development
+    # RepositorySource adapter.
+    #
+    # workspace_root MUST remain outside the source repository so
+    # WorkspaceManager does not recursively copy its own workspaces.
+    repository_source_root: str = "."
+    workspace_root: str = "~/.repopilot/workspaces"
+
+    # LLM configuration.
     model_provider: str = "ollama"
     model_name: str = ""
     ollama_base_url: str = "http://localhost:11434"
@@ -33,19 +44,23 @@ class Settings(BaseSettings):
     openrouter_site_url: str | None = None
     openrouter_app_name: str = "RepoPilot"
 
+    # Embeddings.
     embedding_provider: str = "ollama"
     embedding_model: str = "nomic-embed-text"
     vector_dimension: int | None = None
 
+    # Sandbox.
     sandbox_enabled: bool = True
     sandbox_image: str = "repopilot-sandbox:latest"
     sandbox_timeout_seconds: int = 300
     sandbox_memory_limit: str = "512m"
     sandbox_cpu_limit: int = 1
 
+    # Application secrets.
     secret_key: str = ""
     jwt_secret_key: str = ""
 
+    # Observability.
     otel_enabled: bool = False
     otel_service_name: str = "repopilot-api"
 

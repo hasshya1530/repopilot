@@ -18,14 +18,10 @@ from ingestion.change_context.models import RepositoryChangeContext
 
 
 class PlannerProtocol(Protocol):
-    async def plan(
+    async def generate_plan(
         self,
-        repository_id: UUID,
-        task_description: str,
-        symbol_id: UUID | None = None,
+        context: PlanningContext,
         *,
-        context_limit: int = 20,
-        max_depth: int = 2,
         max_tokens: int = 4096,
     ) -> ImplementationPlan:
         ...
@@ -103,6 +99,7 @@ class PlanningContextBuilderProtocol(Protocol):
         self,
         repository_id: UUID,
         task_description: str,
+        repository_path: Path,
         symbol_id: UUID | None = None,
         *,
         context_limit: int = 20,
