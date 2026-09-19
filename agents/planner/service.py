@@ -67,6 +67,7 @@ class PlanningContextService:
             dependencies=change_context.dependencies,
             constraints=constraints,
             change_context=change_context,
+            repository_context=change_context.repository_context,
         )
 
     @staticmethod
@@ -119,5 +120,17 @@ class PlanningContextService:
                 ),
             )
         )
+
+        if context.repository_context is not None:
+            constraints.append(
+                PlanningConstraint(
+                    name="repository_evidence",
+                    description=(
+                        "Base implementation decisions on the retrieved "
+                        "repository source evidence and do not invent "
+                        "unsupported repository behavior."
+                    ),
+                )
+            )
 
         return tuple(constraints)

@@ -109,6 +109,7 @@ class ChangeContextService:
             files=files,
             symbols=symbols,
             dependencies=dependencies,
+            repository_context=repository_context,
         )
 
     @staticmethod

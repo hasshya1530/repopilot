@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -15,6 +16,10 @@ from ingestion.graph.parsers import PythonRelationshipParser
 from ingestion.graph.query.impact import ImpactAnalysisService
 from ingestion.graph.query.traversal import DependencyTraversalService
 from ingestion.graph.service import RepositoryGraphService
+from ingestion.retrieval.hybrid import HybridCodeRetrievalService
+from ingestion.retrieval.lexical import CodeLexicalRetrievalService
+from ingestion.retrieval.models import RetrievalResult
+from ingestion.retrieval.ranking import RetrievalRanker
 from ingestion.retrieval.service import CodeRetrievalService
 
 
@@ -29,6 +34,40 @@ class RelationshipParserRegistry:
     def get_parser(self, extension: str) -> Any:
         """Return a parser for the supplied file extension."""
         return self._parsers.get(extension.lower())
+
+
+class HybridRetrievalAdapter:
+    """Adapt ranked hybrid retrieval results to the context-layer contract."""
+
+    def __init__(
+        self,
+        *,
+        retrieval_service: HybridCodeRetrievalService,
+    ) -> None:
+        self._retrieval_service = retrieval_service
+
+    async def search(
+        self,
+        *,
+        repository_id: UUID,
+        query: str,
+        limit: int = 10,
+    ) -> list[RetrievalResult]:
+        """Return hybrid-ranked results using the context service contract."""
+
+        ranked_results = await self._retrieval_service.search(
+            repository_id=repository_id,
+            query=query,
+            limit=limit,
+        )
+
+        return [
+            replace(
+                ranked_result.result,
+                score=ranked_result.score,
+            )
+            for ranked_result in ranked_results
+        ]
 
 
 def create_relationship_extraction_service() -> (
@@ -48,13 +87,27 @@ def create_repository_context_service(
     session: AsyncSession,
     settings: Settings,
 ) -> RepositoryContextService:
-    """Create the repository context service."""
+    """Create the repository context service with hybrid retrieval."""
 
     embedding_provider = create_embedding_provider(settings)
 
-    retrieval_service = CodeRetrievalService(
+    semantic_service = CodeRetrievalService(
         session=session,
         embedding_provider=embedding_provider,
+    )
+
+    lexical_service = CodeLexicalRetrievalService(
+        session=session,
+    )
+
+    hybrid_service = HybridCodeRetrievalService(
+        semantic_service=semantic_service,
+        lexical_service=lexical_service,
+        ranker=RetrievalRanker(),
+    )
+
+    retrieval_service = HybridRetrievalAdapter(
+        retrieval_service=hybrid_service,
     )
 
     return RepositoryContextService(

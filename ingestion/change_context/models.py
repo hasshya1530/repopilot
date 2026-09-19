@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from ingestion.context.models import RepositoryContext
+
 
 @dataclass(frozen=True, slots=True)
 class ChangeContextFile:
@@ -26,7 +28,7 @@ class ChangeContextSymbol:
 
 @dataclass(frozen=True, slots=True)
 class ChangeContextDependency:
-    """A dependency relevant to a proposed change."""
+    """A dependency between repository symbols."""
 
     source_symbol_id: UUID
     target_symbol_id: UUID
@@ -36,10 +38,11 @@ class ChangeContextDependency:
 
 @dataclass(frozen=True, slots=True)
 class RepositoryChangeContext:
-    """Structured repository context for planning a code change."""
+    """Complete repository context for a proposed change."""
 
     repository_id: UUID
     task_description: str
     files: tuple[ChangeContextFile, ...]
     symbols: tuple[ChangeContextSymbol, ...]
     dependencies: tuple[ChangeContextDependency, ...]
+    repository_context: RepositoryContext | None = None
