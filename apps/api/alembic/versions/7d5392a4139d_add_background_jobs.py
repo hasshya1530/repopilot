@@ -5,12 +5,11 @@ Revises: 30199e05c57d
 Create Date: 2026-09-19 15:40:45.324385
 """
 
-from typing import Sequence
+from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
-
 
 revision: str = "7d5392a4139d"
 down_revision: str | Sequence[str] | None = "30199e05c57d"

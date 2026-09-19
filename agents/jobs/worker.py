@@ -3,14 +3,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Protocol
+from uuid import UUID
 
 from redis.asyncio import Redis
 
+from agents.events.models import JobEventType
+from agents.events.service import JobEventService
+from agents.events.stream import RedisJobEventStream
 from agents.jobs.models import Job, JobStatus, JobType
 from agents.jobs.queue import RedisJobQueue
 from agents.jobs.retry import RetryPolicy
 from apps.api.app.core.config import get_settings
 from apps.api.app.core.database import async_session_factory
+from apps.api.app.models.task import TaskStatus
 from apps.api.app.services.background_job import (
     mark_job_failed,
     mark_job_retrying,
@@ -18,6 +23,7 @@ from apps.api.app.services.background_job import (
     mark_job_succeeded,
 )
 from apps.api.app.services.orchestration_factory import create_orchestration_service
+from apps.api.app.services.task import update_task_status
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +39,12 @@ class JobWorker:
         *,
         retry_policy: RetryPolicy | None = None,
         poll_timeout: int = 5,
+        event_service: JobEventService | None = None,
     ) -> None:
         self._queue = queue
         self._retry_policy = retry_policy or RetryPolicy()
         self._poll_timeout = poll_timeout
+        self._event_service = event_service
         self._handlers: dict[str, JobHandler] = {}
 
     def register_handler(
@@ -45,6 +53,33 @@ class JobWorker:
         handler: JobHandler,
     ) -> None:
         self._handlers[job_type] = handler
+
+    async def _publish_event(
+        self,
+        job: Job,
+        event_type: JobEventType,
+        message: str,
+        *,
+        metadata: dict[str, object] | None = None,
+    ) -> None:
+        if self._event_service is None:
+            return
+
+        try:
+            await self._event_service.publish(
+                job_id=job.id,
+                task_id=job.task_id,
+                event_type=event_type,
+                message=message,
+                attempt=job.attempt,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to publish event %s for job %s.",
+                event_type.value,
+                job.id,
+            )
 
     async def _mark_running(self, job: Job) -> None:
         async with async_session_factory() as session:
@@ -78,6 +113,17 @@ class JobWorker:
                 error_message,
             )
 
+    async def _mark_task_failed(
+        self,
+        task_id: UUID,
+    ) -> None:
+        async with async_session_factory() as session:
+            await update_task_status(
+                session,
+                task_id,
+                TaskStatus.FAILED,
+            )
+
     async def process_once(self) -> JobStatus | None:
         job = await self._queue.dequeue(
             timeout=self._poll_timeout,
@@ -87,6 +133,16 @@ class JobWorker:
             return None
 
         await self._mark_running(job)
+
+        await self._publish_event(
+            job,
+            JobEventType.STARTED,
+            "Worker started processing the job.",
+            metadata={
+                "job_type": job.job_type.value,
+                "attempt": job.attempt,
+            },
+        )
 
         handler = self._handlers.get(
             job.job_type.value,
@@ -101,6 +157,15 @@ class JobWorker:
             await self._mark_failed(
                 job,
                 error_message,
+            )
+
+            await self._publish_event(
+                job,
+                JobEventType.FAILED,
+                error_message,
+                metadata={
+                    "reason": "missing_handler",
+                },
             )
 
             logger.error(
@@ -131,6 +196,21 @@ class JobWorker:
                     error_message,
                 )
 
+                await self._mark_task_failed(
+                    job.task_id,
+                )
+
+                await self._publish_event(
+                    job,
+                    JobEventType.FAILED,
+                    "Job failed after exhausting all retry attempts.",
+                    metadata={
+                        "error": error_message,
+                        "attempt": job.attempt,
+                        "max_attempts": job.max_attempts,
+                    },
+                )
+
                 logger.error(
                     "Job %s exhausted all retry attempts.",
                     job.id,
@@ -146,6 +226,18 @@ class JobWorker:
             retry_attempt = job.next_attempt
             delay = self._retry_policy.delay_for_attempt(
                 retry_attempt,
+            )
+
+            await self._publish_event(
+                job,
+                JobEventType.RETRYING,
+                f"Job failed and will retry in {delay:.2f} seconds.",
+                metadata={
+                    "error": error_message,
+                    "next_attempt": retry_attempt,
+                    "delay_seconds": delay,
+                    "max_attempts": job.max_attempts,
+                },
             )
 
             if delay > 0:
@@ -173,6 +265,15 @@ class JobWorker:
             return JobStatus.RETRYING
 
         await self._mark_succeeded(job)
+
+        await self._publish_event(
+            job,
+            JobEventType.SUCCEEDED,
+            "Job completed successfully.",
+            metadata={
+                "attempt": job.attempt,
+            },
+        )
 
         return JobStatus.SUCCEEDED
 
@@ -212,7 +313,13 @@ async def main() -> None:
 
     queue = RedisJobQueue(redis)
 
-    worker = JobWorker(queue)
+    event_stream = RedisJobEventStream(redis)
+    event_service = JobEventService(event_stream)
+
+    worker = JobWorker(
+        queue,
+        event_service=event_service,
+    )
 
     worker.register_handler(
         JobType.ORCHESTRATION.value,

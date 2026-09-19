@@ -59,10 +59,12 @@ class OrchestrationService:
                 f"Task {task_id} was not found."
             )
 
-        if task.status != TaskStatus.PENDING:
+        task_status = TaskStatus(task.status)
+
+        if task_status != TaskStatus.PENDING:
             raise OrchestrationExecutionError(
                 f"Task {task_id} cannot start from status "
-                f"{task.status.value!r}."
+                f"{task_status.value!r}."
             )
 
         repository = await self._dependencies.persistence.get_repository(
@@ -425,18 +427,9 @@ class OrchestrationService:
             )
 
         except OrchestrationExecutionError:
-            await self._dependencies.persistence.update_task_status(
-                task_id,
-                TaskStatus.FAILED,
-            )
             raise
 
         except Exception as exc:
-            await self._dependencies.persistence.update_task_status(
-                task_id,
-                TaskStatus.FAILED,
-            )
-
             raise OrchestrationExecutionError(
                 f"Orchestration failed for task {task_id}: {exc}"
             ) from exc
@@ -459,10 +452,12 @@ class OrchestrationService:
                 f"Task {task_id} was not found."
             )
 
-        if task.status != TaskStatus.WAITING_APPROVAL:
+        task_status = TaskStatus(task.status)
+
+        if task_status != TaskStatus.WAITING_APPROVAL:
             raise OrchestrationExecutionError(
                 f"Task {task_id} cannot resume approval from "
-                f"status {task.status.value!r}."
+                f"status {task_status.value!r}."
             )
 
         approval = await self._dependencies.approval.get_status(

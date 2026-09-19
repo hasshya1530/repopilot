@@ -40,7 +40,9 @@ async def get_background_job(
     job_id: UUID,
 ) -> BackgroundJob | None:
     result = await session.execute(
-        select(BackgroundJob).where(BackgroundJob.id == job_id)
+        select(BackgroundJob).where(
+            BackgroundJob.id == job_id,
+        )
     )
 
     return result.scalar_one_or_none()
@@ -50,7 +52,10 @@ async def mark_job_running(
     session: AsyncSession,
     job: Job,
 ) -> BackgroundJob | None:
-    background_job = await get_background_job(session, job.id)
+    background_job = await get_background_job(
+        session,
+        job.id,
+    )
 
     if background_job is None:
         return None
@@ -71,7 +76,10 @@ async def mark_job_retrying(
     job: Job,
     error_message: str,
 ) -> BackgroundJob | None:
-    background_job = await get_background_job(session, job.id)
+    background_job = await get_background_job(
+        session,
+        job.id,
+    )
 
     if background_job is None:
         return None
@@ -90,7 +98,10 @@ async def mark_job_succeeded(
     session: AsyncSession,
     job: Job,
 ) -> BackgroundJob | None:
-    background_job = await get_background_job(session, job.id)
+    background_job = await get_background_job(
+        session,
+        job.id,
+    )
 
     if background_job is None:
         return None
@@ -111,7 +122,10 @@ async def mark_job_failed(
     job: Job,
     error_message: str,
 ) -> BackgroundJob | None:
-    background_job = await get_background_job(session, job.id)
+    background_job = await get_background_job(
+        session,
+        job.id,
+    )
 
     if background_job is None:
         return None

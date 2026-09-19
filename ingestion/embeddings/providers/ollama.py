@@ -1,52 +1,120 @@
+from __future__ import annotations
+
+import asyncio
+
 from ollama import AsyncClient
 
+from apps.api.app.core.config import get_settings
 from ingestion.embeddings.base import EmbeddingProvider
-from ingestion.embeddings.errors import EmbeddingError
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
-    """Embedding provider backed by Ollama."""
+    """Embedding provider backed by a local Ollama server."""
 
     def __init__(
         self,
-        model_name: str = "nomic-embed-text",
-        base_url: str = "http://localhost:11434",
-        dimension: int = 768,
+        *,
+        base_url: str | None = None,
+        model_name: str | None = None,
+        dimension: int | None = None,
+        timeout_seconds: float = 120.0,
+        max_retries: int = 2,
     ) -> None:
-        self._model_name = model_name
-        self._dimension = dimension
-        self._client = AsyncClient(host=base_url)
+        settings = get_settings()
+
+        resolved_base_url = (
+            base_url.strip()
+            if base_url is not None
+            else settings.ollama_base_url
+        )
+        resolved_model_name = (
+            model_name.strip()
+            if model_name is not None
+            else settings.embedding_model.strip()
+        )
+
+        if not resolved_base_url:
+            raise ValueError("Ollama base URL must not be empty.")
+
+        if not resolved_model_name:
+            raise ValueError("Ollama embedding model must not be empty.")
+
+        self._client = AsyncClient(
+            host=resolved_base_url,
+            timeout=timeout_seconds,
+        )
+        self._model_name = resolved_model_name
+        self._dimension = (
+            dimension
+            if dimension is not None
+            else settings.vector_dimension or 768
+        )
+        self._timeout_seconds = timeout_seconds
+        self._max_retries = max_retries
 
     @property
     def model_name(self) -> str:
+        """Return the configured Ollama embedding model."""
         return self._model_name
 
     @property
     def dimension(self) -> int:
+        """Return the embedding vector dimensionality."""
         return self._dimension
 
     async def embed(self, text: str) -> list[float]:
-        if not text.strip():
-            raise EmbeddingError("Cannot embed empty text.")
+        """Generate an embedding for a single text."""
+        embeddings = await self.embed_many([text])
+        return embeddings[0]
 
-        try:
-            response = await self._client.embed(
-                model=self._model_name,
-                input=text,
-            )
-        except Exception as exc:
-            raise EmbeddingError(f"Failed to generate embedding with {self._model_name}") from exc
+    async def embed_many(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings for multiple texts using Ollama."""
+        if not texts:
+            return []
 
-        embeddings = response["embeddings"]
+        last_error: Exception | None = None
 
-        if not embeddings:
-            raise EmbeddingError("Ollama returned no embeddings.")
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = await asyncio.wait_for(
+                    self._client.embed(
+                        model=self._model_name,
+                        input=texts,
+                    ),
+                    timeout=self._timeout_seconds,
+                )
 
-        embedding = embeddings[0]
+                embeddings = [
+                    list(embedding)
+                    for embedding in response.embeddings
+                ]
 
-        if len(embedding) != self._dimension:
-            raise EmbeddingError(
-                f"Expected embedding dimension {self._dimension}, got {len(embedding)}"
-            )
+                if len(embeddings) != len(texts):
+                    raise RuntimeError(
+                        "Ollama returned an unexpected number of embeddings: "
+                        f"expected {len(texts)}, got {len(embeddings)}."
+                    )
 
-        return list(embedding)
+                for index, embedding in enumerate(embeddings):
+                    if len(embedding) != self._dimension:
+                        raise RuntimeError(
+                            "Ollama returned an unexpected embedding dimension: "
+                            f"expected {self._dimension}, "
+                            f"got {len(embedding)} for item {index}."
+                        )
+
+                return embeddings
+
+            except Exception as exc:
+                last_error = exc
+
+                if attempt >= self._max_retries:
+                    break
+
+                await asyncio.sleep(2**attempt)
+
+        raise RuntimeError(
+            "Ollama embedding request failed after "
+            f"{self._max_retries + 1} attempts for "
+            f"{len(texts)} texts using model '{self._model_name}'."
+        ) from last_error

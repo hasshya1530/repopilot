@@ -36,8 +36,13 @@ class ImplementationContextService:
         files: list[ImplementationContextFile] = []
         symbols: list[ImplementationContextSymbol] = []
 
-        requested_files = {item.file_path for item in plan.files_to_modify}
-        requested_files.update(item.file_path for item in plan.files_to_create)
+        # Files that already exist and need source-level context.
+        #
+        # files_to_create is intentionally excluded here because a planned
+        # creation is allowed to refer to a file that does not exist yet.
+        requested_files = {
+            item.file_path for item in plan.files_to_modify
+        }
 
         for item in change_context.files:
             requested_files.add(item.file_path)
@@ -71,7 +76,10 @@ class ImplementationContextService:
                 )
             )
 
-        file_content_by_path = {item.file_path: item.content for item in files}
+        file_content_by_path = {
+            item.file_path: item.content
+            for item in files
+        }
 
         for symbol in change_context.symbols:
             symbol_source = file_content_by_path.get(symbol.file_path)
@@ -124,7 +132,9 @@ class ImplementationContextService:
         task_description: str,
     ) -> None:
         if not repository_id:
-            raise ImplementationContextConfigurationError("repository_id is required.")
+            raise ImplementationContextConfigurationError(
+                "repository_id is required."
+            )
 
         if not repository_path.is_dir():
             raise ImplementationContextConfigurationError(
@@ -132,7 +142,9 @@ class ImplementationContextService:
             )
 
         if not task_description.strip():
-            raise ImplementationContextConfigurationError("task_description must not be empty.")
+            raise ImplementationContextConfigurationError(
+                "task_description must not be empty."
+            )
 
     @staticmethod
     def _file_reason(

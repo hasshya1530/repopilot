@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
@@ -9,8 +11,18 @@ from ingestion.parser.languages.base import (
 
 
 class TypeScriptParser(LanguageParser):
-    def __init__(self) -> None:
-        self._language = Language(tree_sitter_typescript.language_typescript())
+    """Extract TypeScript or TSX symbols with Tree-sitter."""
+
+    def __init__(self, *, tsx: bool = False) -> None:
+        self._tsx = tsx
+
+        language_factory = (
+            tree_sitter_typescript.language_tsx
+            if tsx
+            else tree_sitter_typescript.language_typescript
+        )
+
+        self._language = Language(language_factory())
         self._parser = Parser(self._language)
 
     def parse(self, source: bytes) -> list[CodeSymbol]:
@@ -108,15 +120,10 @@ class TypeScriptParser(LanguageParser):
                     )
                 )
 
-            elif child.type == "class_body":
-                self._extract_symbols(
-                    node=child,
-                    source=source,
-                    symbols=symbols,
-                    parent=parent,
-                )
-
-            elif child.type == "statement_block":
+            elif child.type in {
+                "class_body",
+                "statement_block",
+            }:
                 self._extract_symbols(
                     node=child,
                     source=source,
@@ -134,8 +141,5 @@ class TypeScriptParser(LanguageParser):
         return name_node.text.decode("utf-8")
 
     @staticmethod
-    def _node_text(
-        node: Node,
-        source: bytes,
-    ) -> str:
-        return source[node.start_byte:node.end_byte].decode("utf-8")
+    def _node_text(node: Node, source: bytes) -> str:
+        return source[node.start_byte : node.end_byte].decode("utf-8")

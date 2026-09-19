@@ -4,6 +4,8 @@ from fastapi import Depends, FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.app.api.v1.events import router as events_router
+from apps.api.app.api.v1.jobs import router as jobs_router
 from apps.api.app.api.v1.orchestration import router as orchestration_router
 from apps.api.app.api.v1.repositories import router as repositories_router
 from apps.api.app.api.v1.tasks import router as tasks_router
@@ -29,6 +31,16 @@ app.include_router(
 
 app.include_router(
     orchestration_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    jobs_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    events_router,
     prefix="/api/v1",
 )
 
