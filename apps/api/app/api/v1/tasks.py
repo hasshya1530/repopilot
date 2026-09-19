@@ -13,6 +13,7 @@ from apps.api.app.schemas.task import (
 from apps.api.app.services.task import (
     create_task,
     get_task,
+    list_tasks,
     update_task_status,
 )
 
@@ -40,6 +41,21 @@ async def create_task_endpoint(
         ) from exc
 
     return TaskResponse.model_validate(task)
+
+
+@router.get(
+    "",
+    response_model=list[TaskResponse],
+)
+async def list_tasks_endpoint(
+    session: Annotated[AsyncSession, Depends(get_db)],
+) -> list[TaskResponse]:
+    tasks = await list_tasks(session)
+
+    return [
+        TaskResponse.model_validate(task)
+        for task in tasks
+    ]
 
 
 @router.get(

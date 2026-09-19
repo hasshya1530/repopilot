@@ -33,11 +33,23 @@ async def create_task(
     return task
 
 
+async def list_tasks(
+    session: AsyncSession,
+) -> list[Task]:
+    result = await session.execute(
+        select(Task).order_by(Task.created_at.desc())
+    )
+
+    return list(result.scalars().all())
+
+
 async def get_task(
     session: AsyncSession,
     task_id: UUID,
 ) -> Task | None:
-    result = await session.execute(select(Task).where(Task.id == task_id))
+    result = await session.execute(
+        select(Task).where(Task.id == task_id)
+    )
 
     return result.scalar_one_or_none()
 
