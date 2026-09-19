@@ -1,27 +1,27 @@
-from datetime import datetime
-from typing import Any
+from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, func
+from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-class Base(DeclarativeBase):
-    type_annotation_map = {
-        datetime: DateTime(timezone=True),
-    }
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {column.name: getattr(self, column.name) for column in self.__table__.columns}
+
+class Base(DeclarativeBase):
+    pass
 
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(),
+        DateTime(timezone=True),
         nullable=False,
+        default=utc_now,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(),
-        onupdate=func.now(),
+        DateTime(timezone=True),
         nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
     )

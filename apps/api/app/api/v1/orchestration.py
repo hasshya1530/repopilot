@@ -1,39 +1,21 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.orchestrator.errors import OrchestrationExecutionError
+from agents.jobs.queue import RedisJobQueue
+from agents.jobs.service import JobService
 from apps.api.app.core.database import get_db
-from apps.api.app.schemas.orchestration import (
-    OrchestrationStartResponse,
-)
+from apps.api.app.core.redis import get_redis
+from apps.api.app.schemas.orchestration import OrchestrationStartResponse
+from apps.api.app.services.task import get_task
 
 router = APIRouter(
     prefix="/tasks",
     tags=["orchestration"],
 )
-
-
-async def run_orchestration(
-    task_id: UUID,
-    session: AsyncSession,
-) -> None:
-    # Importing the concrete factory here keeps API wiring separate
-    # from the orchestration domain.
-    from apps.api.app.services.orchestration_factory import (
-        create_orchestration_service,
-    )
-
-    service = create_orchestration_service(session)
-
-    try:
-        await service.run(task_id)
-    except OrchestrationExecutionError:
-        # The service persists failure state. Background execution
-        # must not turn an already-accepted request into an HTTP error.
-        return
 
 
 @router.post(
@@ -43,12 +25,13 @@ async def run_orchestration(
 )
 async def start_orchestration(
     task_id: UUID,
-    background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated[Redis, Depends(get_redis)],
 ) -> OrchestrationStartResponse:
-    from apps.api.app.services.task import get_task
-
-    task = await get_task(session, task_id)
+    task = await get_task(
+        session,
+        task_id,
+    )
 
     if task is None:
         raise HTTPException(
@@ -56,14 +39,19 @@ async def start_orchestration(
             detail=f"Task {task_id} was not found.",
         )
 
-    background_tasks.add_task(
-        run_orchestration,
+    queue = RedisJobQueue(redis)
+
+    job_service = JobService(
+        queue=queue,
+        session=session,
+    )
+
+    job = await job_service.enqueue_orchestration(
         task_id,
-        session,
     )
 
     return OrchestrationStartResponse(
         task_id=task_id,
         status=task.status,
-        message="Orchestration started.",
+        message=f"Orchestration queued. Job ID: {job.id}.",
     )
