@@ -36,18 +36,47 @@ class ImplementationContextService:
         files: list[ImplementationContextFile] = []
         symbols: list[ImplementationContextSymbol] = []
 
-        # Files that already exist and need source-level context.
-        #
-        # files_to_create is intentionally excluded here because a planned
-        # creation is allowed to refer to a file that does not exist yet.
-        requested_files = {
-            item.file_path for item in plan.files_to_modify
+        planned_modify_paths = {
+            item.file_path
+            for item in plan.files_to_modify
         }
 
-        for item in change_context.files:
-            requested_files.add(item.file_path)
+        planned_create_paths = {
+            item.file_path
+            for item in plan.files_to_create
+        }
 
-        for file_path in sorted(requested_files):
+        test_paths = {
+            item.file_path
+            for item in plan.test_files
+        }
+
+        self._validate_plan_file_operations(
+            repository_path=repository_path,
+            modify_paths=planned_modify_paths,
+            create_paths=planned_create_paths,
+            test_paths=test_paths,
+        )
+
+        requested_files = tuple(
+            dict.fromkeys(
+                
+                    item.file_path
+                    for item in (
+                        list(plan.files_to_modify)
+                        + list(plan.test_files)
+                    )
+                    if item.file_path.strip()
+                
+            )
+        )
+
+        change_context_by_path = {
+            item.file_path: item
+            for item in change_context.files
+        }
+
+        for file_path in requested_files:
             source_path = repository_path / file_path
 
             if not source_path.is_file():
@@ -62,11 +91,16 @@ class ImplementationContextService:
                     f"Unable to read repository file: {file_path}"
                 ) from exc
 
-            reason = self._file_reason(
-                file_path=file_path,
-                change_context=change_context,
-                plan=plan,
-            )
+            context_file = change_context_by_path.get(file_path)
+
+            if context_file is not None:
+                reason = context_file.reason
+            else:
+                reason = self._file_reason(
+                    file_path=file_path,
+                    change_context=change_context,
+                    plan=plan,
+                )
 
             files.append(
                 ImplementationContextFile(
@@ -81,7 +115,16 @@ class ImplementationContextService:
             for item in files
         }
 
+        planned_symbol_ids = {
+            symbol.symbol_id
+            for symbol in change_context.symbols
+            if symbol.file_path in planned_modify_paths
+        }
+
         for symbol in change_context.symbols:
+            if symbol.file_path not in planned_modify_paths:
+                continue
+
             symbol_source = file_content_by_path.get(symbol.file_path)
 
             if symbol_source is None:
@@ -114,6 +157,10 @@ class ImplementationContextService:
                 depth=item.depth,
             )
             for item in change_context.dependencies
+            if (
+                item.source_symbol_id in planned_symbol_ids
+                or item.target_symbol_id in planned_symbol_ids
+            )
         )
 
         return ImplementationContext(
@@ -123,6 +170,54 @@ class ImplementationContextService:
             symbols=tuple(symbols),
             dependencies=dependencies,
         )
+
+    @staticmethod
+    def _validate_plan_file_operations(
+        *,
+        repository_path: Path,
+        modify_paths: set[str],
+        create_paths: set[str],
+        test_paths: set[str],
+    ) -> None:
+        existing_create_paths = sorted(
+            path
+            for path in create_paths
+            if (repository_path / path).is_file()
+        )
+
+        if existing_create_paths:
+            joined = ", ".join(existing_create_paths)
+            raise ImplementationContextRetrievalError(
+                "Implementation plan incorrectly classifies existing "
+                f"repository files as creations: {joined}"
+            )
+
+        missing_modify_paths = sorted(
+            path
+            for path in modify_paths
+            if not (repository_path / path).is_file()
+        )
+
+        if missing_modify_paths:
+            joined = ", ".join(missing_modify_paths)
+            raise ImplementationContextRetrievalError(
+                "Implementation plan references missing files for modification: "
+                f"{joined}"
+            )
+
+        missing_test_paths = sorted(
+            path
+            for path in test_paths
+            if not (repository_path / path).is_file()
+            and path not in create_paths
+        )
+
+        if missing_test_paths:
+            joined = ", ".join(missing_test_paths)
+            raise ImplementationContextRetrievalError(
+                "Implementation plan references test files that do not "
+                f"exist and are not planned for creation: {joined}"
+            )
 
     @staticmethod
     def _validate_inputs(
@@ -160,6 +255,10 @@ class ImplementationContextService:
         for planned_file in plan.files_to_modify:
             if planned_file.file_path == file_path:
                 return planned_file.reason
+
+        for test_file in plan.test_files:
+            if test_file.file_path == file_path:
+                return test_file.reason
 
         for created_file in plan.files_to_create:
             if created_file.file_path == file_path:

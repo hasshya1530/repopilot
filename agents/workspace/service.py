@@ -6,7 +6,6 @@ from pathlib import Path
 
 from agents.workspace.errors import (
     WorkspaceConfigurationError,
-    WorkspaceStateError,
 )
 from agents.workspace.git_service import GitService
 from agents.workspace.models import WorkspaceInfo
@@ -38,11 +37,9 @@ class WorkspaceManager:
                 f"Source repository does not exist: {repository_path}"
             )
 
-        git = GitService(source)
-
-        if not git.is_clean():
-            raise WorkspaceStateError(
-                "Source repository must be clean before creating a workspace."
+        if not source.is_dir():
+            raise WorkspaceConfigurationError(
+                f"Source repository is not a directory: {repository_path}"
             )
 
         workspace_name = uuid.uuid4().hex

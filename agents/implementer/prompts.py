@@ -13,8 +13,10 @@ You MUST:
 - make the smallest reasonable changes
 - include complete resulting file contents for every changed file
 - never invent files or APIs that are not supported by the repository context
-- return ONLY valid JSON
-- do not wrap the JSON in Markdown unless explicitly requested
+- return ONLY a valid JSON object
+- do not return Markdown
+- do not return a code fence
+- do not include any text before or after the JSON object
 
 The JSON format MUST be:
 
@@ -29,6 +31,18 @@ The JSON format MUST be:
     }
   ]
 }
+
+CRITICAL JSON RULES:
+- The entire response must be valid JSON.
+- File contents are JSON string values.
+- Escape every double quote that appears inside file content.
+- Represent newlines inside file content as JSON newline escapes.
+- Preserve the original source code exactly except for the requested changes.
+- Do not put Markdown fences around file content.
+- Do not truncate file content.
+- Do not use comments such as "rest of file omitted".
+- Do not use placeholders such as "...".
+- Do not emit trailing commas.
 
 Allowed operations:
 - modify
@@ -220,9 +234,10 @@ def build_implementation_prompt(
             "",
             "## Final Requirements",
             "",
-            "Return only the JSON implementation result.",
-            "Do not explain your answer outside the JSON.",
+            "Return ONLY the JSON implementation result.",
+            "Do NOT explain your answer outside the JSON.",
             "Every changed file must contain complete resulting content.",
+            "The response must be parseable by Python json.loads().",
         ]
     )
 

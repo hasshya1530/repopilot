@@ -50,9 +50,10 @@ class ImplementationPlan:
     assumptions: tuple[str, ...]
     files_to_modify: tuple[PlannedFile, ...]
     files_to_create: tuple[PlannedFile, ...]
-    symbols_to_modify: tuple[PlannedSymbol, ...]
-    implementation_steps: tuple[ImplementationStep, ...]
-    dependencies: tuple[str, ...]
-    tests_to_add: tuple[str, ...]
-    validation_commands: tuple[str, ...]
-    risks: tuple[str, ...]
+    test_files: tuple[PlannedFile, ...] = ()
+    symbols_to_modify: tuple[PlannedSymbol, ...] = ()
+    implementation_steps: tuple[ImplementationStep, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    tests_to_add: tuple[str, ...] = ()
+    validation_commands: tuple[str, ...] = ()
+    risks: tuple[str, ...] = ()

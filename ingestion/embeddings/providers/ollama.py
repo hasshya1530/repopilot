@@ -6,6 +6,7 @@ from ollama import AsyncClient
 
 from apps.api.app.core.config import get_settings
 from ingestion.embeddings.base import EmbeddingProvider
+from ingestion.embeddings.errors import EmbeddingError
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
@@ -38,6 +39,12 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
         if not resolved_model_name:
             raise ValueError("Ollama embedding model must not be empty.")
+
+        if timeout_seconds <= 0:
+            raise ValueError("Ollama embedding timeout must be greater than zero.")
+
+        if max_retries < 0:
+            raise ValueError("Ollama embedding max_retries cannot be negative.")
 
         self._client = AsyncClient(
             host=resolved_base_url,
@@ -72,6 +79,12 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         if not texts:
             return []
 
+        for index, text in enumerate(texts):
+            if not text.strip():
+                raise EmbeddingError(
+                    f"Embedding text at index {index} must not be empty text."
+                )
+
         last_error: Exception | None = None
 
         for attempt in range(self._max_retries + 1):
@@ -91,7 +104,7 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
 
                 if len(embeddings) != len(texts):
                     raise RuntimeError(
-                        "Ollama returned an unexpected number of embeddings: "
+                        "Ollama returned an unexpected number of embeddings:"
                         f"expected {len(texts)}, got {len(embeddings)}."
                     )
 
@@ -104,6 +117,9 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                         )
 
                 return embeddings
+
+            except EmbeddingError:
+                raise
 
             except Exception as exc:
                 last_error = exc

@@ -7,6 +7,7 @@ from uuid import UUID
 from agents.approval.models import ApprovalRequest
 from agents.debugger.models import DebuggerResult
 from agents.implementer.models import ImplementationResult
+from agents.orchestrator.adapters.artifacts import serialize_implementation
 from agents.orchestrator.errors import (
     OrchestrationConfigurationError,
     OrchestrationExecutionError,
@@ -22,6 +23,7 @@ from agents.orchestrator.protocols import OrchestrationDependencies
 from agents.orchestrator.transitions import transition
 from agents.reviewer.models import ReviewDecision
 from apps.api.app.models.task import TaskStatus
+from apps.api.app.models.task_step import AgentType
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +88,9 @@ class OrchestrationService:
         artifacts = OrchestrationArtifacts()
         workspace_path: Path | None = None
 
+        coding_task_step_id: UUID | None = None
+        coding_agent_run_id: UUID | None = None
+
         try:
             task_description = task.description or task.title
 
@@ -142,7 +147,6 @@ class OrchestrationService:
                     max_tokens=self._config.planner_max_tokens,
                 )
             else:
-                # Backward compatibility for legacy planner test doubles.
                 legacy_plan = getattr(planner, "plan", None)
 
                 if not callable(legacy_plan):
@@ -207,6 +211,19 @@ class OrchestrationService:
                 current_step=OrchestrationStepType.IMPLEMENT,
             )
 
+            # Persist the coding agent lifecycle before invoking the LLM.
+            if self._dependencies.artifacts is not None:
+                step, run = await self._dependencies.artifacts.start_agent(
+                    task_id=task_id,
+                    agent_type=AgentType.CODING,
+                    step_number=4,
+                    step_name="implementation",
+                    input_data=task_description,
+                    attempt_number=1,
+                )
+                coding_task_step_id = step.id
+                coding_agent_run_id = run.id
+
             implementation = (
                 await self._dependencies.implementer.implement(
                     implementation_context,
@@ -216,6 +233,20 @@ class OrchestrationService:
             )
 
             if not implementation.changes:
+                if (
+                    self._dependencies.artifacts is not None
+                    and coding_task_step_id is not None
+                    and coding_agent_run_id is not None
+                ):
+                    await self._dependencies.artifacts.fail_agent(
+                        task_step_id=coding_task_step_id,
+                        agent_run_id=coding_agent_run_id,
+                        error_message="Implementation produced no changes.",
+                    )
+
+                coding_task_step_id = None
+                coding_agent_run_id = None
+
                 return await self._fail(
                     task_id,
                     state,
@@ -237,6 +268,20 @@ class OrchestrationService:
                     repository_path
                 )
             )
+
+            # Capture the repository state BEFORE ChangeApplier modifies it.
+            implementation_snapshots = None
+
+            if (
+                self._dependencies.artifacts is not None
+                and coding_agent_run_id is not None
+            ):
+                implementation_snapshots = (
+                    self._dependencies.artifacts.capture_snapshots(
+                        workspace_path=workspace_path,
+                        implementation=implementation,
+                    )
+                )
 
             # ---------------------------------------------------------
             # 6. TESTING
@@ -266,6 +311,43 @@ class OrchestrationService:
                 execution=execution,
             )
 
+            # Persist the actual file changes and test result after execution.
+            if (
+                self._dependencies.artifacts is not None
+                and coding_agent_run_id is not None
+                and implementation_snapshots is not None
+            ):
+                await self._dependencies.artifacts.persist_implementation(
+                    agent_run_id=coding_agent_run_id,
+                    workspace_path=workspace_path,
+                    implementation=implementation,
+                    application_result=execution.changes,
+                    snapshots=implementation_snapshots,
+                )
+
+                await self._dependencies.artifacts.persist_test_result(
+                    agent_run_id=coding_agent_run_id,
+                    workspace_path=workspace_path,
+                    execution=execution,
+                )
+
+            # A generated implementation and its execution artifacts are now
+            # durably associated with the coding agent run.
+            if (
+                execution.succeeded
+                and self._dependencies.artifacts is not None
+                and coding_task_step_id is not None
+                and coding_agent_run_id is not None
+            ):
+                await self._dependencies.artifacts.complete_agent(
+                    task_step_id=coding_task_step_id,
+                    agent_run_id=coding_agent_run_id,
+                    output_data=serialize_implementation(implementation),
+                )
+
+                coding_task_step_id = None
+                coding_agent_run_id = None
+
             # ---------------------------------------------------------
             # 7. DEBUGGING / SELF-REPAIR
             # ---------------------------------------------------------
@@ -280,9 +362,27 @@ class OrchestrationService:
                 debugger = await self._dependencies.debugger.debug(
                     workspace_path,
                     implementation_context,
+                    task_id=task_id,
                 )
 
                 if not debugger.succeeded:
+                    if (
+                        self._dependencies.artifacts is not None
+                        and coding_task_step_id is not None
+                        and coding_agent_run_id is not None
+                    ):
+                        await self._dependencies.artifacts.fail_agent(
+                            task_step_id=coding_task_step_id,
+                            agent_run_id=coding_agent_run_id,
+                            error_message=(
+                                "Automated debugging could not produce "
+                                "a passing test result."
+                            ),
+                        )
+
+                        coding_task_step_id = None
+                        coding_agent_run_id = None
+
                     return await self._fail(
                         task_id,
                         state,
@@ -312,11 +412,42 @@ class OrchestrationService:
                 )
 
                 if debugger.final_test_result.status.value != "passed":
+                    if (
+                        self._dependencies.artifacts is not None
+                        and coding_task_step_id is not None
+                        and coding_agent_run_id is not None
+                    ):
+                        await self._dependencies.artifacts.fail_agent(
+                            task_step_id=coding_task_step_id,
+                            agent_run_id=coding_agent_run_id,
+                            error_message="Tests still fail after debugging.",
+                        )
+
+                        coding_task_step_id = None
+                        coding_agent_run_id = None
+
                     return await self._fail(
                         task_id,
                         state,
                         "Tests still fail after debugging.",
                     )
+
+                # The original coding run had already produced its initial
+                # artifacts. Debugger persistence will be added as a separate
+                # agent lifecycle in the debugger persistence stage.
+                if (
+                    self._dependencies.artifacts is not None
+                    and coding_task_step_id is not None
+                    and coding_agent_run_id is not None
+                ):
+                    await self._dependencies.artifacts.complete_agent(
+                        task_step_id=coding_task_step_id,
+                        agent_run_id=coding_agent_run_id,
+                        output_data=serialize_implementation(implementation),
+                    )
+
+                    coding_task_step_id = None
+                    coding_agent_run_id = None
 
             # ---------------------------------------------------------
             # 8. REVIEW
@@ -430,6 +561,22 @@ class OrchestrationService:
             raise
 
         except Exception as exc:
+            if (
+                self._dependencies.artifacts is not None
+                and coding_task_step_id is not None
+                and coding_agent_run_id is not None
+            ):
+                try:
+                    await self._dependencies.artifacts.fail_agent(
+                        task_step_id=coding_task_step_id,
+                        agent_run_id=coding_agent_run_id,
+                        error_message=str(exc),
+                    )
+                except Exception:
+                    # Artifact persistence must not mask the original
+                    # orchestration exception.
+                    pass
+
             raise OrchestrationExecutionError(
                 f"Orchestration failed for task {task_id}: {exc}"
             ) from exc

@@ -10,6 +10,7 @@ from agents.execution.service import ExecutionService
 from agents.implementer.context.service import ImplementationContextService
 from agents.implementer.llm_implementer import LLMImplementer
 from agents.llm.factory import create_llm_provider
+from agents.orchestrator.adapters.artifacts import SqlAlchemyArtifactPersistence
 from agents.orchestrator.adapters.persistence import SqlAlchemyTaskPersistence
 from agents.orchestrator.adapters.planning_context import (
     RepositoryAwarePlanningContextBuilder,
@@ -110,6 +111,20 @@ def create_orchestration_service(
     )
 
     # ---------------------------------------------------------
+    # Persistence
+    # ---------------------------------------------------------
+
+    persistence = SqlAlchemyTaskPersistence(
+        session=session,
+    )
+
+    artifacts = SqlAlchemyArtifactPersistence(
+        session=session,
+        model_provider=resolved_settings.model_provider,
+        model_name=resolved_settings.model_name,
+    )
+
+    # ---------------------------------------------------------
     # Self-debugging
     # ---------------------------------------------------------
 
@@ -117,6 +132,7 @@ def create_orchestration_service(
         repair_generator=RepairGenerator(provider),
         test_runner=test_runner,
         max_attempts=3,
+        artifact_persistence=artifacts,
     )
 
     # ---------------------------------------------------------
@@ -149,14 +165,6 @@ def create_orchestration_service(
     )
 
     # ---------------------------------------------------------
-    # Persistence
-    # ---------------------------------------------------------
-
-    persistence = SqlAlchemyTaskPersistence(
-        session=session,
-    )
-
-    # ---------------------------------------------------------
     # Repository source
     # ---------------------------------------------------------
 
@@ -185,6 +193,7 @@ def create_orchestration_service(
 
     dependencies = OrchestrationDependencies(
         persistence=persistence,
+        artifacts=artifacts,
         repository_source=repository_source,
         planning_context_builder=planning_context_builder,
         planner=planner,

@@ -1,27 +1,27 @@
 from dataclasses import dataclass
+from typing import Literal
+
+OllamaResponseFormat = Literal["", "json"]
 
 
 @dataclass(frozen=True, slots=True)
 class LLMMessage:
-    """A message sent to an LLM."""
-
     role: str
     content: str
 
 
 @dataclass(frozen=True, slots=True)
 class LLMRequest:
-    """A provider-agnostic LLM generation request."""
-
     messages: tuple[LLMMessage, ...]
     temperature: float = 0.0
     max_tokens: int | None = None
+    context_window: int | None = None
+    response_format: OllamaResponseFormat | dict[str, object] | None = None
+    reasoning_enabled: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class LLMResponse:
-    """A provider-agnostic LLM generation response."""
-
     content: str
     model: str
     prompt_tokens: int | None = None

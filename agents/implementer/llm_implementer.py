@@ -6,16 +6,24 @@ from agents.implementer.prompts import (
     build_implementation_prompt,
     get_system_prompt,
 )
+from agents.implementer.validator import ImplementationValidator
 from agents.llm.models import LLMMessage, LLMRequest
 from agents.llm.provider import LLMProvider
 from agents.planner.plan_models import ImplementationPlan
 
 
 class LLMImplementer:
-    """Generate structured code changes from an implementation context."""
+    """Generate and validate structured code changes from an implementation plan."""
 
-    def __init__(self, provider: LLMProvider) -> None:
+    DEFAULT_CONTEXT_WINDOW = 16_384
+
+    def __init__(
+        self,
+        provider: LLMProvider,
+        validator: ImplementationValidator | None = None,
+    ) -> None:
         self._provider = provider
+        self._validator = validator or ImplementationValidator()
 
     async def implement(
         self,
@@ -40,6 +48,9 @@ class LLMImplementer:
             ),
             temperature=0.0,
             max_tokens=max_tokens,
+            context_window=self.DEFAULT_CONTEXT_WINDOW,
+            response_format="json",
+            reasoning_enabled=False,
         )
 
         try:
@@ -50,8 +61,23 @@ class LLMImplementer:
             ) from exc
 
         try:
-            return parse_implementation_result(response.content)
+            implementation = parse_implementation_result(response.content)
         except Exception as exc:
             raise ImplementationGenerationError(
                 f"LLM returned an invalid implementation result: {exc}"
             ) from exc
+
+        validation = self._validator.validate(
+            plan=plan,
+            implementation=implementation,
+        )
+
+        if not validation.valid:
+            errors = "; ".join(validation.errors)
+
+            raise ImplementationGenerationError(
+                "LLM implementation violated the approved implementation plan: "
+                f"{errors}"
+            )
+
+        return implementation

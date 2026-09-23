@@ -195,3 +195,173 @@ def test_rejects_delete_missing_file(tmp_path: Path) -> None:
                 )
             )
         )
+
+
+def test_rejects_duplicate_change_targets(tmp_path: Path) -> None:
+    target = tmp_path / "auth.py"
+    target.write_text("return False\n")
+
+    applier = ChangeApplier(tmp_path)
+
+    with pytest.raises(
+        ChangeApplicationValidationError,
+        match="Duplicate change target",
+    ):
+        applier.apply(
+            make_result(
+                CodeChange(
+                    file_path="auth.py",
+                    operation=ChangeOperation.MODIFY,
+                    content="return True\n",
+                    reason="First change.",
+                ),
+                CodeChange(
+                    file_path="./auth.py",
+                    operation=ChangeOperation.MODIFY,
+                    content="return 42\n",
+                    reason="Duplicate target.",
+                ),
+            )
+        )
+
+
+def test_preflight_prevents_partial_application(tmp_path: Path) -> None:
+    first = tmp_path / "first.py"
+    first.write_text("value = 1\n")
+
+    second = tmp_path / "second.py"
+    second.write_text("value = 2\n")
+
+    applier = ChangeApplier(tmp_path)
+
+    with pytest.raises(ChangeApplicationConflictError):
+        applier.apply(
+            make_result(
+                CodeChange(
+                    file_path="first.py",
+                    operation=ChangeOperation.MODIFY,
+                    content="value = 10\n",
+                    reason="Valid first change.",
+                ),
+                CodeChange(
+                    file_path="missing.py",
+                    operation=ChangeOperation.MODIFY,
+                    content="value = 20\n",
+                    reason="Invalid second change.",
+                ),
+            )
+        )
+
+    assert first.read_text() == "value = 1\n"
+    assert second.read_text() == "value = 2\n"
+    assert not (tmp_path / "missing.py").exists()
+
+
+def test_rejects_symlink_target(tmp_path: Path) -> None:
+    target = tmp_path / "real.py"
+    target.write_text("value = 1\n")
+
+    link = tmp_path / "link.py"
+    link.symlink_to(target)
+
+    applier = ChangeApplier(tmp_path)
+
+    with pytest.raises(
+        ChangeApplicationValidationError,
+        match="Symlink targets are not allowed",
+    ):
+        applier.apply(
+            make_result(
+                CodeChange(
+                    file_path="link.py",
+                    operation=ChangeOperation.MODIFY,
+                    content="value = 2\n",
+                    reason="Should not modify through symlink.",
+                )
+            )
+        )
+
+    assert target.read_text() == "value = 1\n"
+
+
+def test_create_parent_directory_and_file(tmp_path: Path) -> None:
+    applier = ChangeApplier(tmp_path)
+
+    result = applier.apply(
+        make_result(
+            CodeChange(
+                file_path="src/nested/service.py",
+                operation=ChangeOperation.CREATE,
+                content="value = 1\n",
+                reason="Create nested service.",
+            )
+        )
+    )
+
+    target = tmp_path / "src" / "nested" / "service.py"
+
+    assert target.exists()
+    assert target.read_text() == "value = 1\n"
+    assert result.files_changed == 1
+
+
+def test_rejects_empty_created_file(tmp_path: Path) -> None:
+    applier = ChangeApplier(tmp_path)
+
+    with pytest.raises(
+        ChangeApplicationValidationError,
+        match="Created file cannot be empty",
+    ):
+        applier.apply(
+            make_result(
+                CodeChange(
+                    file_path="empty.py",
+                    operation=ChangeOperation.CREATE,
+                    content="",
+                    reason="Invalid empty file.",
+                )
+            )
+        )
+
+
+def test_rejects_delete_with_content(tmp_path: Path) -> None:
+    target = tmp_path / "old.py"
+    target.write_text("obsolete = True\n")
+
+    applier = ChangeApplier(tmp_path)
+
+    with pytest.raises(
+        ChangeApplicationValidationError,
+        match="Delete change must not contain content",
+    ):
+        applier.apply(
+            make_result(
+                CodeChange(
+                    file_path="old.py",
+                    operation=ChangeOperation.DELETE,
+                    content="still here\n",
+                    reason="Invalid delete.",
+                )
+            )
+        )
+
+
+def test_modify_rejects_directory_target(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+
+    applier = ChangeApplier(tmp_path)
+
+    with pytest.raises(
+        ChangeApplicationValidationError,
+        match="Target is not a file",
+    ):
+        applier.apply(
+            make_result(
+                CodeChange(
+                    file_path="src",
+                    operation=ChangeOperation.MODIFY,
+                    content="value = 1\n",
+                    reason="Invalid directory target.",
+                )
+            )
+        )

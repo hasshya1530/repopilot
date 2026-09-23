@@ -1,4 +1,3 @@
-import json
 from uuid import UUID, uuid4
 
 import pytest
@@ -9,74 +8,55 @@ from agents.implementer.context.models import (
     ImplementationContextFile,
     ImplementationContextSymbol,
 )
+from agents.implementer.errors import ImplementationGenerationError
 from agents.implementer.llm_implementer import LLMImplementer
-from agents.implementer.models import ChangeOperation
-from agents.llm.models import LLMRequest, LLMResponse
-from agents.llm.provider import LLMProvider
+from agents.implementer.models import (
+    ChangeOperation,
+    ImplementationResult,
+)
+from agents.implementer.validator import (
+    ImplementationValidationCode,
+    ImplementationValidationIssue,
+    ImplementationValidationResult,
+    ImplementationValidator,
+)
+from agents.llm.models import LLMResponse
 from agents.planner.plan_models import (
     ImplementationPlan,
-    ImplementationStep,
     PlannedFile,
-    PlannedSymbol,
-    PlanStepType,
 )
 
 
-class FakeLLMProvider(LLMProvider):
-    """Deterministic LLM provider for unit tests."""
-
-    def __init__(self, response: str) -> None:
-        self._response = response
-        self.requests: list[LLMRequest] = []
-
-    @property
-    def model_name(self) -> str:
-        return "fake-model"
-
-    async def generate(self, request: LLMRequest) -> LLMResponse:
-        self.requests.append(request)
-
-        return LLMResponse(
-            content=self._response,
-            model=self.model_name,
-        )
-
-
 def make_context(repository_id: UUID) -> ImplementationContext:
-    symbol_id = uuid4()
+    source_symbol_id = uuid4()
+    target_symbol_id = uuid4()
 
     return ImplementationContext(
         repository_id=repository_id,
-        task_description="Improve authentication token validation.",
+        task_description="Update the service.",
         files=(
             ImplementationContextFile(
-                file_path="auth.py",
-                content=(
-                    'def validate_token(token: str) -> bool:\n'
-                    '    return token == "valid"\n'
-                ),
-                reason="Authentication logic is relevant.",
+                file_path="src/service.py",
+                content="def service():\n    return 1\n",
+                reason="Target service.",
             ),
         ),
         symbols=(
             ImplementationContextSymbol(
-                symbol_id=symbol_id,
-                file_path="auth.py",
-                name="validate_token",
+                symbol_id=source_symbol_id,
+                file_path="src/service.py",
+                name="service",
                 symbol_type="function",
                 start_line=1,
                 end_line=2,
-                content=(
-                    'def validate_token(token: str) -> bool:\n'
-                    '    return token == "valid"'
-                ),
-                reason="Target validation function.",
+                content="def service():\n    return 1",
+                reason="Target function.",
             ),
         ),
         dependencies=(
             ImplementationContextDependency(
-                source_symbol_id=symbol_id,
-                target_symbol_id=symbol_id,
+                source_symbol_id=source_symbol_id,
+                target_symbol_id=target_symbol_id,
                 relation="calls",
                 depth=1,
             ),
@@ -85,118 +65,164 @@ def make_context(repository_id: UUID) -> ImplementationContext:
 
 
 def make_plan() -> ImplementationPlan:
-    symbol_id = uuid4()
-
     return ImplementationPlan(
-        summary="Improve authentication validation.",
+        summary="Update service.",
         assumptions=(),
         files_to_modify=(
             PlannedFile(
-                file_path="auth.py",
-                reason="Modify token validation.",
+                file_path="src/service.py",
+                reason="Update the service implementation.",
             ),
         ),
         files_to_create=(),
-        symbols_to_modify=(
-            PlannedSymbol(
-                symbol_id=symbol_id,
-                file_path="auth.py",
-                name="validate_token",
-                reason="Improve token validation.",
-            ),
-        ),
-        implementation_steps=(
-            ImplementationStep(
-                order=1,
-                description="Modify token validation.",
-                step_type=PlanStepType.MODIFY,
-                file_path="auth.py",
-                symbol_name="validate_token",
-            ),
-        ),
+        symbols_to_modify=(),
+        implementation_steps=(),
         dependencies=(),
-        tests_to_add=("Add invalid token regression tests.",),
-        validation_commands=("pytest",),
+        tests_to_add=(),
+        validation_commands=(),
         risks=(),
     )
 
 
-@pytest.mark.asyncio
-async def test_implement_generates_structured_changes() -> None:
-    response = json.dumps(
-        {
-            "summary": "Improve authentication validation.",
-            "changes": [
-                {
-                    "file_path": "auth.py",
-                    "operation": "modify",
-                    "content": (
-                        'def validate_token(token: str) -> bool:\n'
-                        '    return token.strip() == "valid"\n'
-                    ),
-                    "reason": (
-                        "Reject tokens with invalid surrounding whitespace."
-                    ),
-                }
-            ],
-        }
-    )
+class RecordingProvider:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.requests = []
 
-    provider = FakeLLMProvider(response)
+    async def generate(self, request):
+        self.requests.append(request)
+        return LLMResponse(
+            content=self.content,
+            model="test-model",
+        )
+
+
+class AlwaysInvalidValidator(ImplementationValidator):
+    def validate(
+        self,
+        *,
+        plan,
+        implementation,
+    ) -> ImplementationValidationResult:
+        return ImplementationValidationResult(
+            valid=False,
+            issues=(
+                ImplementationValidationIssue(
+                    code=ImplementationValidationCode.UNPLANNED_FILE,
+                    file_path="unexpected.py",
+                    message="Unexpected implementation change.",
+                ),
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_implementer_returns_validated_implementation() -> None:
+    provider = RecordingProvider(
+        """
+        {
+          "summary": "Updated the service.",
+          "changes": [
+            {
+              "file_path": "src/service.py",
+              "operation": "modify",
+              "content": "def service():\\n    return 2\\n",
+              "reason": "Update the service behavior."
+            }
+          ]
+        }
+        """
+    )
 
     implementer = LLMImplementer(provider)
 
-    repository_id = uuid4()
-
     result = await implementer.implement(
-        context=make_context(repository_id),
-        plan=make_plan(),
+        make_context(uuid4()),
+        make_plan(),
     )
 
-    assert result.summary == "Improve authentication validation."
+    assert isinstance(result, ImplementationResult)
+    assert result.summary == "Updated the service."
     assert len(result.changes) == 1
-
-    change = result.changes[0]
-
-    assert change.file_path == "auth.py"
-    assert change.operation is ChangeOperation.MODIFY
-    assert "validate_token" in change.content
-    assert "strip()" in change.content
-
+    assert result.changes[0].file_path == "src/service.py"
+    assert result.changes[0].operation == ChangeOperation.MODIFY
     assert len(provider.requests) == 1
-
-    request = provider.requests[0]
-
-    assert len(request.messages) == 2
-    assert request.messages[0].role == "system"
-    assert request.messages[1].role == "user"
-
-    user_prompt = request.messages[1].content
-
-    assert "Improve authentication token validation." in user_prompt
-    assert "auth.py" in user_prompt
-    assert "validate_token" in user_prompt
-    assert "Add invalid token regression tests." in user_prompt
 
 
 @pytest.mark.asyncio
-async def test_implement_rejects_invalid_llm_output() -> None:
-    response = json.dumps(
-        {
-            "summary": "Invalid implementation.",
-            "changes": [],
-        }
-    )
-
-    provider = FakeLLMProvider(response)
+async def test_implementer_rejects_invalid_json() -> None:
+    provider = RecordingProvider("not valid json")
 
     implementer = LLMImplementer(provider)
 
     with pytest.raises(
-        Exception,
+        ImplementationGenerationError,
         match="invalid implementation result",
     ):
         await implementer.implement(
-            context=make_context(uuid4()),
-            plan=make_plan(),
+            make_context(uuid4()),
+            make_plan(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_implementer_rejects_changes_that_violate_plan() -> None:
+    provider = RecordingProvider(
+        """
+        {
+          "summary": "Made an unrelated change.",
+          "changes": [
+            {
+              "file_path": "src/unplanned.py",
+              "operation": "modify",
+              "content": "unexpected = True\\n",
+              "reason": "This was not requested."
+            }
+          ]
+        }
+        """
+    )
+
+    implementer = LLMImplementer(provider)
+
+    with pytest.raises(
+        ImplementationGenerationError,
+        match="violated the approved implementation plan",
+    ):
+        await implementer.implement(
+            make_context(uuid4()),
+            make_plan(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_implementer_uses_injected_validator() -> None:
+    provider = RecordingProvider(
+        """
+        {
+          "summary": "Updated the service.",
+          "changes": [
+            {
+              "file_path": "src/service.py",
+              "operation": "modify",
+              "content": "def service():\\n    return 2\\n",
+              "reason": "Update the service behavior."
+            }
+          ]
+        }
+        """
+    )
+
+    implementer = LLMImplementer(
+        provider,
+        validator=AlwaysInvalidValidator(),
+    )
+
+    with pytest.raises(
+        ImplementationGenerationError,
+        match="violated the approved implementation plan",
+    ):
+        await implementer.implement(
+            make_context(uuid4()),
+            make_plan(),
         )

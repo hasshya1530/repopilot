@@ -7,12 +7,35 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
+from agents.debugger.errors import (
+    DebuggerConfigurationError,
+    RepairLimitExceededError,
+)
 from agents.events.models import JobEventType
 from agents.events.service import JobEventService
 from agents.events.stream import RedisJobEventStream
+from agents.execution.errors import (
+    ExecutionConfigurationError,
+    ExecutionValidationError,
+)
+from agents.implementer.applier.errors import (
+    ChangeApplicationConfigurationError,
+    ChangeApplicationConflictError,
+    ChangeApplicationValidationError,
+)
+from agents.implementer.errors import (
+    ImplementationConfigurationError,
+)
+from agents.implementer.validation_errors import ImplementationValidationError
+from agents.jobs.errors import NonRetryableJobError
 from agents.jobs.models import Job, JobStatus, JobType
 from agents.jobs.queue import RedisJobQueue
 from agents.jobs.retry import RetryPolicy
+from agents.orchestrator.errors import (
+    InvalidOrchestrationTransitionError,
+    OrchestrationCancelledError,
+    OrchestrationConfigurationError,
+)
 from apps.api.app.core.config import get_settings
 from apps.api.app.core.database import async_session_factory
 from apps.api.app.models.task import TaskStatus
@@ -30,6 +53,26 @@ logger = logging.getLogger(__name__)
 
 class JobHandler(Protocol):
     async def __call__(self, job: Job) -> None: ...
+
+
+NON_RETRYABLE_AGENT_ERRORS: tuple[type[BaseException], ...] = (
+    ImplementationValidationError,
+    ImplementationConfigurationError,
+    ChangeApplicationConfigurationError,
+    ChangeApplicationValidationError,
+    ChangeApplicationConflictError,
+    ExecutionConfigurationError,
+    ExecutionValidationError,
+    DebuggerConfigurationError,
+    RepairLimitExceededError,
+    OrchestrationConfigurationError,
+    OrchestrationCancelledError,
+    InvalidOrchestrationTransitionError,
+)
+
+
+def _is_non_retryable_error(exc: BaseException) -> bool:
+    return isinstance(exc, NON_RETRYABLE_AGENT_ERRORS)
 
 
 class JobWorker:
@@ -124,6 +167,43 @@ class JobWorker:
                 TaskStatus.FAILED,
             )
 
+    async def _fail_terminal_job(
+        self,
+        job: Job,
+        error_message: str,
+        *,
+        reason: str,
+    ) -> JobStatus:
+        await self._mark_failed(
+            job,
+            error_message,
+        )
+
+        await self._mark_task_failed(
+            job.task_id,
+        )
+
+        await self._publish_event(
+            job,
+            JobEventType.FAILED,
+            "Job failed with a non-retryable error.",
+            metadata={
+                "error": error_message,
+                "reason": reason,
+                "attempt": job.attempt,
+                "max_attempts": job.max_attempts,
+                "retryable": False,
+            },
+        )
+
+        logger.error(
+            "Job %s failed with non-retryable error: %s",
+            job.id,
+            error_message,
+        )
+
+        return JobStatus.FAILED
+
     async def process_once(self) -> JobStatus | None:
         job = await self._queue.dequeue(
             timeout=self._poll_timeout,
@@ -154,41 +234,39 @@ class JobWorker:
                 f"{job.job_type.value!r}."
             )
 
-            await self._mark_failed(
+            return await self._fail_terminal_job(
                 job,
                 error_message,
+                reason="missing_handler",
             )
-
-            await self._publish_event(
-                job,
-                JobEventType.FAILED,
-                error_message,
-                metadata={
-                    "reason": "missing_handler",
-                },
-            )
-
-            logger.error(
-                "Job %s failed: %s",
-                job.id,
-                error_message,
-            )
-
-            return JobStatus.FAILED
 
         try:
             await handler(job)
 
-        except Exception as exc:
-            error_message = (
-                str(exc) or exc.__class__.__name__
+        except NonRetryableJobError as exc:
+            error_message = str(exc) or exc.__class__.__name__
+
+            return await self._fail_terminal_job(
+                job,
+                error_message,
+                reason="non_retryable",
             )
+
+        except Exception as exc:
+            error_message = str(exc) or exc.__class__.__name__
 
             logger.exception(
                 "Job %s failed on attempt %d.",
                 job.id,
                 job.attempt,
             )
+
+            if _is_non_retryable_error(exc):
+                return await self._fail_terminal_job(
+                    job,
+                    error_message,
+                    reason="deterministic_agent_failure",
+                )
 
             if not job.has_attempts_remaining:
                 await self._mark_failed(
@@ -208,6 +286,8 @@ class JobWorker:
                         "error": error_message,
                         "attempt": job.attempt,
                         "max_attempts": job.max_attempts,
+                        "reason": "retry_exhausted",
+                        "retryable": True,
                     },
                 )
 
@@ -237,6 +317,8 @@ class JobWorker:
                     "next_attempt": retry_attempt,
                     "delay_seconds": delay,
                     "max_attempts": job.max_attempts,
+                    "reason": "retryable_failure",
+                    "retryable": True,
                 },
             )
 
@@ -297,9 +379,15 @@ async def run_orchestration_job(job: Job) -> None:
     async with async_session_factory() as session:
         service = create_orchestration_service(session)
 
-        await service.run(
+        result = await service.run(
             job.task_id,
         )
+
+        if result.status.value == "failed":
+            raise NonRetryableJobError(
+                "Orchestration reached a terminal failure: "
+                f"{result.error or result.summary}"
+            )
 
 
 async def main() -> None:

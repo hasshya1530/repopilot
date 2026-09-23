@@ -1,130 +1,180 @@
-from pathlib import PurePosixPath
-
-from agents.planner.plan_models import (
-    ImplementationPlan,
-    ImplementationStep,
-    PlanStepType,
-)
+from agents.planner.plan_models import ImplementationPlan, PlanStepType
 
 
 class PlanValidationError(ValueError):
-    """Raised when an implementation plan is invalid."""
+    """Raised when an implementation plan violates a planner contract."""
 
 
 def validate_plan(plan: ImplementationPlan) -> None:
-    """Validate an implementation plan before execution."""
-    _validate_summary(plan.summary)
-    _validate_collection_entries(plan)
-    _validate_steps(plan.implementation_steps)
-    _validate_file_paths(plan)
-    _validate_step_requirements(plan)
+    """Validate structural and semantic invariants of an implementation plan."""
+
+    _validate_summary(plan)
+    _validate_files(plan)
+    _validate_symbols(plan)
+    _validate_steps(plan)
+    _validate_new_file_operations(plan)
+    _validate_test_files(plan)
 
 
-def _validate_summary(summary: str) -> None:
-    if not summary.strip():
-        raise PlanValidationError("Implementation plan summary cannot be empty.")
+def _validate_summary(plan: ImplementationPlan) -> None:
+    if not plan.summary.strip():
+        raise PlanValidationError(
+            "Plan summary must not be empty."
+        )
 
 
-def _validate_collection_entries(plan: ImplementationPlan) -> None:
-    for planned_file in (*plan.files_to_modify, *plan.files_to_create):
+def _validate_files(plan: ImplementationPlan) -> None:
+    for planned_file in (
+        *plan.files_to_modify,
+        *plan.files_to_create,
+    ):
         if not planned_file.file_path.strip():
-            raise PlanValidationError("Planned file path cannot be empty.")
+            raise PlanValidationError(
+                "Planned file path must not be empty."
+            )
+
         if not planned_file.reason.strip():
             raise PlanValidationError(
-                f"Planned file '{planned_file.file_path}' must have a reason."
+                f"Planned file {planned_file.file_path} must have a reason."
             )
+
+        if planned_file.file_path.startswith("/"):
+            raise PlanValidationError(
+                f"Planned file path must be relative: "
+                f"{planned_file.file_path}"
+            )
+
+        if ".." in planned_file.file_path.split("/"):
+            raise PlanValidationError(
+                "Planned file path must not contain '..': "
+                f"{planned_file.file_path}"
+            )
+
+
+def _validate_symbols(plan: ImplementationPlan) -> None:
+    modify_paths = {
+        item.file_path
+        for item in plan.files_to_modify
+    }
 
     for symbol in plan.symbols_to_modify:
-        if not symbol.file_path.strip():
-            raise PlanValidationError("Planned symbol file path cannot be empty.")
+        if symbol.file_path not in modify_paths:
+            raise PlanValidationError(
+                "Every planned symbol must belong to a modified file: "
+                f"{symbol.file_path}"
+            )
+
         if not symbol.name.strip():
             raise PlanValidationError(
-                f"Planned symbol in '{symbol.file_path}' must have a name."
+                f"Planned symbol {symbol.symbol_id} must have a name."
             )
+
         if not symbol.reason.strip():
             raise PlanValidationError(
-                f"Planned symbol '{symbol.name}' must have a reason."
+                f"Planned symbol {symbol.name} must have a reason."
             )
 
 
-def _validate_steps(steps: tuple[ImplementationStep, ...]) -> None:
-    if not steps:
+def _validate_steps(plan: ImplementationPlan) -> None:
+    if not plan.implementation_steps:
         raise PlanValidationError(
             "Implementation plan must contain at least one implementation step."
         )
 
-    expected_orders = tuple(range(1, len(steps) + 1))
-    actual_orders = tuple(step.order for step in steps)
+    orders = [
+        step.order
+        for step in plan.implementation_steps
+    ]
 
-    if actual_orders != expected_orders:
+    if orders != list(range(1, len(orders) + 1)):
         raise PlanValidationError(
             "Implementation step orders must be sequential starting at 1."
         )
 
-    for step in steps:
+    step_types = {
+        step.step_type
+        for step in plan.implementation_steps
+    }
+
+    if PlanStepType.TEST in step_types and not plan.tests_to_add:
+        raise PlanValidationError(
+            "A TEST implementation step requires tests_to_add."
+        )
+
+    for step in plan.implementation_steps:
         if not step.description.strip():
             raise PlanValidationError(
-                f"Implementation step {step.order} must have a description."
+                f"Implementation step {step.order} description must not be empty."
             )
 
-
-def _validate_file_paths(plan: ImplementationPlan) -> None:
-    paths = [
-        planned_file.file_path
-        for planned_file in (*plan.files_to_modify, *plan.files_to_create)
-    ]
-
-    paths.extend(
-        symbol.file_path
-        for symbol in plan.symbols_to_modify
-    )
-
-    paths.extend(
-        step.file_path
-        for step in plan.implementation_steps
-        if step.file_path is not None
-    )
-
-    for file_path in paths:
-        _validate_file_path(file_path)
-
-
-def _validate_file_path(file_path: str) -> None:
-    path = PurePosixPath(file_path)
-
-    if not file_path.strip():
-        raise PlanValidationError("File path cannot be empty.")
-
-    if path.is_absolute():
-        raise PlanValidationError(
-            f"Absolute file paths are not allowed: '{file_path}'."
-        )
-
-    if ".." in path.parts:
-        raise PlanValidationError(
-            f"Path traversal is not allowed: '{file_path}'."
-        )
-
-
-def _validate_step_requirements(plan: ImplementationPlan) -> None:
-    for step in plan.implementation_steps:
         if step.step_type in {
             PlanStepType.MODIFY,
             PlanStepType.CREATE,
             PlanStepType.DELETE,
-        } and not step.file_path:
+        } and step.file_path is None:
             raise PlanValidationError(
-                f"{step.step_type.value.upper()} step {step.order} requires a file path."
+                f"{step.step_type.value.upper()} step requires a file path."
             )
 
-    step_types = {step.step_type for step in plan.implementation_steps}
+        if step.step_type == PlanStepType.VALIDATE:
+            if not plan.validation_commands:
+                raise PlanValidationError(
+                    "VALIDATE step requires validation commands."
+                )
 
-    if PlanStepType.TEST in step_types and not plan.tests_to_add:
+
+def _validate_new_file_operations(plan: ImplementationPlan) -> None:
+    """Reject the same file appearing in both modify and create operations."""
+
+    modify_paths = {
+        item.file_path
+        for item in plan.files_to_modify
+    }
+
+    create_paths = {
+        item.file_path
+        for item in plan.files_to_create
+    }
+
+    overlap = sorted(modify_paths & create_paths)
+
+    if overlap:
         raise PlanValidationError(
-            "A TEST implementation step requires at least one test to add."
+            "A file cannot be both modified and created: "
+            + ", ".join(overlap)
         )
 
-    if PlanStepType.VALIDATE in step_types and not plan.validation_commands:
+
+def _validate_test_files(plan: ImplementationPlan) -> None:
+    """Validate optional concrete test-file declarations."""
+
+    if not plan.test_files:
+        return
+
+    test_paths = {
+        item.file_path
+        for item in plan.test_files
+    }
+
+    if len(test_paths) != len(plan.test_files):
         raise PlanValidationError(
-            "A VALIDATE implementation step requires at least one validation command."
+            "Test files must not contain duplicates."
+        )
+
+    operation_paths = {
+        item.file_path
+        for item in plan.files_to_modify
+    } | {
+        item.file_path
+        for item in plan.files_to_create
+    }
+
+    missing_operations = sorted(
+        test_paths - operation_paths
+    )
+
+    if missing_operations:
+        raise PlanValidationError(
+            "Every test file must have a corresponding file operation: "
+            + ", ".join(missing_operations)
         )

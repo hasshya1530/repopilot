@@ -29,6 +29,7 @@ class PlanningContext:
     symbols: tuple[ChangeContextSymbol, ...]
     dependencies: tuple[ChangeContextDependency, ...]
     constraints: tuple[PlanningConstraint, ...]
+    repository_files: tuple[str, ...] = ()
     change_context: RepositoryChangeContext | None = None
     repository_context: RepositoryContext | None = None
 

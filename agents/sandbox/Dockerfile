@@ -1,16 +1,24 @@
 FROM python:3.12-slim
 
-RUN pip install --no-cache-dir pytest
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /opt/repopilot
+
+COPY pyproject.toml uv.lock ./
+
+RUN uv sync --frozen
 
 RUN useradd \
     --create-home \
     --shell /usr/sbin/nologin \
     sandbox
 
-WORKDIR /workspace
+RUN chown -R sandbox:sandbox /opt/repopilot
 
-RUN chown sandbox:sandbox /workspace
+ENV PATH="/opt/repopilot/.venv/bin:$PATH"
 
 USER sandbox
+
+WORKDIR /workspace
 
 ENTRYPOINT []

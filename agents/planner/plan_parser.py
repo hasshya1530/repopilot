@@ -18,6 +18,7 @@ class PlanParsingError(ValueError):
 
 def parse_implementation_plan(content: str) -> ImplementationPlan:
     """Parse and validate an implementation plan returned by an LLM."""
+
     if not content.strip():
         raise PlanParsingError("LLM returned an empty plan.")
 
@@ -29,7 +30,9 @@ def parse_implementation_plan(content: str) -> ImplementationPlan:
     try:
         plan = _build_plan(data)
     except (KeyError, TypeError, ValueError) as exc:
-        raise PlanParsingError(f"Invalid implementation plan structure: {exc}") from exc
+        raise PlanParsingError(
+            f"Invalid implementation plan structure: {exc}"
+        ) from exc
 
     try:
         validate_plan(plan)
@@ -48,7 +51,9 @@ def _parse_json(content: str) -> Any:
     try:
         return json.loads(text)
     except json.JSONDecodeError as exc:
-        raise PlanParsingError(f"LLM response is not valid JSON: {exc.msg}.") from exc
+        raise PlanParsingError(
+            f"LLM response is not valid JSON: {exc.msg}."
+        ) from exc
 
 
 def _remove_code_fence(content: str) -> str:
@@ -70,14 +75,33 @@ def _build_plan(data: dict[str, Any]) -> ImplementationPlan:
     return ImplementationPlan(
         summary=_require_string(data, "summary"),
         assumptions=_string_tuple(data.get("assumptions", [])),
-        files_to_modify=_planned_files(data.get("files_to_modify", [])),
-        files_to_create=_planned_files(data.get("files_to_create", [])),
-        symbols_to_modify=_planned_symbols(data.get("symbols_to_modify", [])),
-        implementation_steps=_implementation_steps(data.get("implementation_steps", [])),
-        dependencies=_string_tuple(data.get("dependencies", [])),
-        tests_to_add=_string_tuple(data.get("tests_to_add", [])),
-        validation_commands=_string_tuple(data.get("validation_commands", [])),
-        risks=_string_tuple(data.get("risks", [])),
+        files_to_modify=_planned_files(
+            data.get("files_to_modify", [])
+        ),
+        files_to_create=_planned_files(
+            data.get("files_to_create", [])
+        ),
+        test_files=_planned_files(
+            data.get("test_files", [])
+        ),
+        symbols_to_modify=_planned_symbols(
+            data.get("symbols_to_modify", [])
+        ),
+        implementation_steps=_implementation_steps(
+            data.get("implementation_steps", [])
+        ),
+        dependencies=_string_tuple(
+            data.get("dependencies", [])
+        ),
+        tests_to_add=_string_tuple(
+            data.get("tests_to_add", [])
+        ),
+        validation_commands=_string_tuple(
+            data.get("validation_commands", [])
+        ),
+        risks=_string_tuple(
+            data.get("risks", [])
+        ),
     )
 
 
@@ -99,6 +123,7 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
     for item in value:
         if not isinstance(item, str):
             raise TypeError("Expected a list of strings.")
+
         result.append(item)
 
     return tuple(result)
@@ -134,7 +159,9 @@ def _planned_symbols(value: Any) -> tuple[PlannedSymbol, ...]:
         if not isinstance(item, dict):
             raise TypeError("Each planned symbol must be an object.")
 
-        symbol_id = UUID(_require_string(item, "symbol_id"))
+        symbol_id = UUID(
+            _require_string(item, "symbol_id")
+        )
 
         result.append(
             PlannedSymbol(
@@ -148,7 +175,9 @@ def _planned_symbols(value: Any) -> tuple[PlannedSymbol, ...]:
     return tuple(result)
 
 
-def _implementation_steps(value: Any) -> tuple[ImplementationStep, ...]:
+def _implementation_steps(
+    value: Any,
+) -> tuple[ImplementationStep, ...]:
     if not isinstance(value, list):
         raise TypeError("Implementation steps must be a list.")
 
@@ -156,26 +185,40 @@ def _implementation_steps(value: Any) -> tuple[ImplementationStep, ...]:
 
     for item in value:
         if not isinstance(item, dict):
-            raise TypeError("Each implementation step must be an object.")
+            raise TypeError(
+                "Each implementation step must be an object."
+            )
 
         order = item["order"]
+
         if not isinstance(order, int):
             raise TypeError("Step order must be an integer.")
 
-        step_type = PlanStepType(_require_string(item, "step_type"))
+        step_type = PlanStepType(
+            _require_string(item, "step_type")
+        )
 
         file_path = item.get("file_path")
+
         if file_path is not None and not isinstance(file_path, str):
-            raise TypeError("Step file_path must be a string or null.")
+            raise TypeError(
+                "Step file_path must be a string or null."
+            )
 
         symbol_name = item.get("symbol_name")
+
         if symbol_name is not None and not isinstance(symbol_name, str):
-            raise TypeError("Step symbol_name must be a string or null.")
+            raise TypeError(
+                "Step symbol_name must be a string or null."
+            )
 
         result.append(
             ImplementationStep(
                 order=order,
-                description=_require_string(item, "description"),
+                description=_require_string(
+                    item,
+                    "description",
+                ),
                 step_type=step_type,
                 file_path=file_path,
                 symbol_name=symbol_name,

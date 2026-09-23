@@ -44,18 +44,22 @@ class ChangeApplier:
         *,
         dry_run: bool = False,
     ) -> ChangeApplicationResult:
+        """
+        Validate the complete change set before mutating the workspace.
+
+        This is intentionally a two-phase operation:
+
+        1. Preflight every requested change.
+        2. Apply changes only after the entire change set is valid.
+
+        This prevents a later invalid change from leaving earlier changes
+        partially applied.
+        """
+        prepared_changes = self._preflight(result)
+
         applied_changes: list[AppliedChange] = []
 
-        for change in result.changes:
-            target = self._resolve_target(change.file_path)
-            self._validate_change(change, target)
-
-            old_content = (
-                target.read_text(encoding="utf-8")
-                if target.exists()
-                else ""
-            )
-
+        for change, target, old_content in prepared_changes:
             diff = self._build_diff(
                 change.file_path,
                 old_content,
@@ -81,6 +85,44 @@ class ChangeApplier:
             dry_run=dry_run,
         )
 
+    def _preflight(
+        self,
+        result: ImplementationResult,
+    ) -> list[tuple[CodeChange, Path, str]]:
+        """
+        Validate the entire change set without modifying the workspace.
+
+        Returns resolved targets and their current contents so that the
+        actual application phase does not need to repeat filesystem reads.
+        """
+        prepared: list[tuple[CodeChange, Path, str]] = []
+        seen_paths: set[str] = set()
+
+        for change in result.changes:
+            target = self._resolve_target(change.file_path)
+
+            normalized_path = target.as_posix()
+
+            if normalized_path in seen_paths:
+                raise ChangeApplicationValidationError(
+                    "Duplicate change target in implementation result: "
+                    f"{change.file_path}"
+                )
+
+            seen_paths.add(normalized_path)
+
+            self._validate_change(change, target)
+
+            old_content = (
+                target.read_text(encoding="utf-8")
+                if target.exists()
+                else ""
+            )
+
+            prepared.append((change, target, old_content))
+
+        return prepared
+
     def _resolve_target(self, file_path: str) -> Path:
         normalized = file_path.strip().replace("\\", "/")
 
@@ -101,7 +143,32 @@ class ChangeApplier:
                 f"Path traversal is not allowed: {file_path}"
             )
 
-        target = (self._workspace_path / Path(*relative.parts)).resolve()
+        candidate = self._workspace_path.joinpath(
+            *relative.parts
+        )
+
+        # Check the lexical path before resolve(), because resolve() follows
+        # symlinks and would otherwise hide the fact that the requested target
+        # itself is a symlink.
+        if candidate.is_symlink():
+            raise ChangeApplicationValidationError(
+                f"Symlink targets are not allowed: {file_path}"
+            )
+
+        # Also reject symlink components in the path. This prevents an LLM
+        # from targeting something such as "src/link/service.py", where
+        # "src/link" points somewhere else.
+        current = self._workspace_path
+
+        for part in relative.parts[:-1]:
+            current = current / part
+
+            if current.is_symlink():
+                raise ChangeApplicationValidationError(
+                    f"Symlink path components are not allowed: {file_path}"
+                )
+
+        target = candidate.resolve()
 
         try:
             target.relative_to(self._workspace_path)
@@ -155,6 +222,11 @@ class ChangeApplier:
                     f"Delete change must not contain content: {change.file_path}"
                 )
 
+        else:
+            raise ChangeApplicationValidationError(
+                f"Unsupported change operation: {change.operation}"
+            )
+
     def _apply_change(
         self,
         change: CodeChange,
@@ -185,11 +257,13 @@ class ChangeApplier:
                 os.fsync(handle.fileno())
 
             os.replace(temp_name, target)
+
         except Exception:
             try:
                 os.unlink(temp_name)
             except FileNotFoundError:
                 pass
+
             raise
 
     @staticmethod

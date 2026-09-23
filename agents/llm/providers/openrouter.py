@@ -43,7 +43,9 @@ class OpenRouterProvider(LLMProvider):
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
         if not request.messages:
-            raise LLMRequestError("LLM request must contain at least one message.")
+            raise LLMRequestError(
+                "LLM request must contain at least one message."
+            )
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -71,6 +73,11 @@ class OpenRouterProvider(LLMProvider):
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
 
+        if request.reasoning_enabled is not None:
+            payload["reasoning"] = {
+                "enabled": request.reasoning_enabled,
+            }
+
         try:
             async with httpx.AsyncClient(
                 base_url=self._base_url,
@@ -86,28 +93,37 @@ class OpenRouterProvider(LLMProvider):
 
         if response.status_code >= 400:
             raise LLMRequestError(
-                f"OpenRouter returned HTTP {response.status_code}: {response.text[:500]}"
+                "OpenRouter returned HTTP "
+                f"{response.status_code}: {response.text[:500]}"
             )
 
         try:
             data = response.json()
         except ValueError as exc:
-            raise LLMResponseError("OpenRouter returned invalid JSON.") from exc
+            raise LLMResponseError(
+                "OpenRouter returned invalid JSON."
+            ) from exc
 
         choices = data.get("choices")
 
         if not isinstance(choices, list) or not choices:
-            raise LLMResponseError("OpenRouter response contains no choices.")
+            raise LLMResponseError(
+                "OpenRouter response contains no choices."
+            )
 
         message = choices[0].get("message")
 
         if not isinstance(message, dict):
-            raise LLMResponseError("OpenRouter response contains an invalid message.")
+            raise LLMResponseError(
+                "OpenRouter response contains an invalid message."
+            )
 
         content = message.get("content")
 
         if not isinstance(content, str) or not content:
-            raise LLMResponseError("OpenRouter returned an empty response.")
+            raise LLMResponseError(
+                "OpenRouter returned an empty response."
+            )
 
         usage = data.get("usage")
 

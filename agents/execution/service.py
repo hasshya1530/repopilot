@@ -18,7 +18,11 @@ class ChangeApplierProtocol(Protocol):
 
 
 class TestRunnerProtocol(Protocol):
-    def run(self, repository_path: Path) -> TestResult:
+    def run(
+        self,
+        repository_path: Path,
+        validation_command: str | None = None,
+    ) -> TestResult:
         ...
 
 
@@ -40,6 +44,7 @@ class ExecutionService:
         self,
         workspace_path: Path,
         implementation: ImplementationResult,
+        validation_command: str | None = None,
     ) -> ExecutionResult:
         workspace = workspace_path.resolve()
 
@@ -55,7 +60,11 @@ class ExecutionService:
 
         applier = self._change_applier_factory(workspace)
         changes = applier.apply(implementation)
-        tests = self._test_runner.run(workspace)
+
+        tests = self._test_runner.run(
+            workspace,
+            validation_command,
+        )
 
         if tests.status == TestStatus.PASSED:
             status = ExecutionStatus.PASSED

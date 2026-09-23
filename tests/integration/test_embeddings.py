@@ -3,6 +3,7 @@ import pytest
 from ingestion.embeddings import EmbeddingError, OllamaEmbeddingProvider
 
 
+@pytest.mark.ollama
 @pytest.mark.asyncio
 async def test_ollama_embedding_real_model() -> None:
     provider = OllamaEmbeddingProvider()
@@ -16,6 +17,7 @@ async def test_ollama_embedding_real_model() -> None:
     assert all(isinstance(value, float) for value in embedding)
 
 
+@pytest.mark.ollama
 @pytest.mark.asyncio
 async def test_ollama_embedding_rejects_empty_text() -> None:
     provider = OllamaEmbeddingProvider()

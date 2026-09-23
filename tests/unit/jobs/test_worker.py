@@ -2,6 +2,14 @@ from uuid import uuid4
 
 import pytest
 
+from agents.debugger.errors import RepairLimitExceededError
+from agents.execution.errors import ExecutionValidationError
+from agents.implementer.applier.errors import (
+    ChangeApplicationConflictError,
+    ChangeApplicationValidationError,
+)
+from agents.implementer.validation_errors import ImplementationValidationError
+from agents.jobs.errors import NonRetryableJobError
 from agents.jobs.models import Job, JobStatus, JobType
 from agents.jobs.queue import RedisJobQueue
 from agents.jobs.retry import RetryPolicy
@@ -41,6 +49,20 @@ def make_job(
     )
 
 
+def make_worker(
+    queue: RedisJobQueue,
+) -> JobWorker:
+    return JobWorker(
+        queue,
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            base_delay_seconds=0,
+            max_delay_seconds=0,
+        ),
+        poll_timeout=1,
+    )
+
+
 @pytest.mark.asyncio
 async def test_worker_dispatches_job() -> None:
     redis = FakeRedis()
@@ -54,12 +76,8 @@ async def test_worker_dispatches_job() -> None:
     async def handler(received_job: Job) -> None:
         handled.append(received_job)
 
-    worker = JobWorker(queue, poll_timeout=1)
-
-    worker.register_handler(
-        JobType.ORCHESTRATION.value,
-        handler,
-    )
+    worker = make_worker(queue)
+    worker.register_handler(JobType.ORCHESTRATION.value, handler)
 
     result = await worker.process_once()
 
@@ -72,7 +90,7 @@ async def test_worker_returns_none_when_queue_is_empty() -> None:
     redis = FakeRedis()
     queue = RedisJobQueue(redis, queue_name="test:jobs")
 
-    worker = JobWorker(queue, poll_timeout=1)
+    worker = make_worker(queue)
 
     result = await worker.process_once()
 
@@ -87,7 +105,7 @@ async def test_worker_fails_when_handler_is_missing() -> None:
     job = make_job()
     await queue.enqueue(job)
 
-    worker = JobWorker(queue, poll_timeout=1)
+    worker = make_worker(queue)
 
     result = await worker.process_once()
 
@@ -100,7 +118,6 @@ async def test_worker_retries_failed_job() -> None:
     queue = RedisJobQueue(redis, queue_name="test:jobs")
 
     job = make_job()
-
     await queue.enqueue(job)
 
     calls: list[Job] = []
@@ -109,20 +126,8 @@ async def test_worker_retries_failed_job() -> None:
         calls.append(received_job)
         raise RuntimeError("temporary failure")
 
-    worker = JobWorker(
-        queue,
-        retry_policy=RetryPolicy(
-            max_attempts=3,
-            base_delay_seconds=0,
-            max_delay_seconds=0,
-        ),
-        poll_timeout=1,
-    )
-
-    worker.register_handler(
-        JobType.ORCHESTRATION.value,
-        handler,
-    )
+    worker = make_worker(queue)
+    worker.register_handler(JobType.ORCHESTRATION.value, handler)
 
     result = await worker.process_once()
 
@@ -135,6 +140,39 @@ async def test_worker_retries_failed_job() -> None:
     assert retry_job.id == job.id
     assert retry_job.attempt == 1
     assert retry_job.max_attempts == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        NonRetryableJobError("terminal"),
+        ImplementationValidationError("invalid implementation"),
+        ChangeApplicationValidationError("unsafe change"),
+        ChangeApplicationConflictError("workspace conflict"),
+        ExecutionValidationError("invalid execution"),
+        RepairLimitExceededError("repair limit reached"),
+    ],
+)
+async def test_worker_does_not_retry_deterministic_agent_failure(
+    error: Exception,
+) -> None:
+    redis = FakeRedis()
+    queue = RedisJobQueue(redis, queue_name="test:jobs")
+
+    job = make_job()
+    await queue.enqueue(job)
+
+    async def handler(_: Job) -> None:
+        raise error
+
+    worker = make_worker(queue)
+    worker.register_handler(JobType.ORCHESTRATION.value, handler)
+
+    result = await worker.process_once()
+
+    assert result == JobStatus.FAILED
+    assert await queue.dequeue(timeout=1) is None
 
 
 @pytest.mark.asyncio
@@ -152,15 +190,7 @@ async def test_worker_fails_after_final_attempt() -> None:
     async def handler(_: Job) -> None:
         raise RuntimeError("permanent failure")
 
-    worker = JobWorker(
-        queue,
-        retry_policy=RetryPolicy(
-            max_attempts=3,
-            base_delay_seconds=0,
-            max_delay_seconds=0,
-        ),
-        poll_timeout=1,
-    )
+    worker = make_worker(queue)
 
     worker.register_handler(
         JobType.ORCHESTRATION.value,
@@ -170,5 +200,4 @@ async def test_worker_fails_after_final_attempt() -> None:
     result = await worker.process_once()
 
     assert result == JobStatus.FAILED
-
     assert await queue.dequeue(timeout=1) is None

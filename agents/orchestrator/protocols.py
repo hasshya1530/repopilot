@@ -5,15 +5,21 @@ from uuid import UUID
 from agents.approval.models import ApprovalRequest, ApprovalResult
 from agents.debugger.models import DebuggerResult
 from agents.execution.models import ExecutionResult
+from agents.implementer.applier.models import ChangeApplicationResult
 from agents.implementer.context.models import ImplementationContext
 from agents.implementer.models import ImplementationResult
 from agents.planner.models import PlanningContext
 from agents.planner.plan_models import ImplementationPlan
 from agents.reviewer.models import ReviewResult
 from agents.workspace.models import WorkspaceInfo
+from apps.api.app.models.agent_run import AgentRun
+from apps.api.app.models.file_change import FileChange
 from apps.api.app.models.pull_request import PullRequest
 from apps.api.app.models.repository import Repository
 from apps.api.app.models.task import Task, TaskStatus
+from apps.api.app.models.task_step import AgentType, TaskStep
+from apps.api.app.models.test_run import TestRun
+from apps.api.app.services.implementation_artifacts import FileSnapshot
 from ingestion.change_context.models import RepositoryChangeContext
 
 
@@ -52,6 +58,8 @@ class DebuggerProtocol(Protocol):
         self,
         workspace_path: Path,
         context: ImplementationContext,
+        *,
+        task_id: UUID | None = None,
     ) -> DebuggerResult:
         ...
 
@@ -172,6 +180,68 @@ class TaskPersistenceProtocol(Protocol):
         ...
 
 
+class ArtifactPersistenceProtocol(Protocol):
+    async def start_agent(
+        self,
+        *,
+        task_id: UUID,
+        agent_type: AgentType,
+        step_number: int,
+        step_name: str,
+        input_data: str | None = None,
+        model_provider: str | None = None,
+        model_name: str | None = None,
+        attempt_number: int = 1,
+    ) -> tuple[TaskStep, AgentRun]:
+        ...
+
+    async def complete_agent(
+        self,
+        *,
+        task_step_id: UUID,
+        agent_run_id: UUID,
+        output_data: str | None = None,
+    ) -> tuple[TaskStep | None, AgentRun | None]:
+        ...
+
+    async def fail_agent(
+        self,
+        *,
+        task_step_id: UUID,
+        agent_run_id: UUID,
+        error_message: str,
+    ) -> tuple[TaskStep | None, AgentRun | None]:
+        ...
+
+    def capture_snapshots(
+        self,
+        *,
+        workspace_path: Path,
+        implementation: ImplementationResult,
+    ) -> dict[str, FileSnapshot]:
+        ...
+
+    async def persist_implementation(
+        self,
+        *,
+        agent_run_id: UUID,
+        workspace_path: Path,
+        implementation: ImplementationResult,
+        application_result: ChangeApplicationResult,
+        snapshots: dict[str, FileSnapshot],
+    ) -> list[FileChange]:
+        ...
+
+    async def persist_test_result(
+        self,
+        *,
+        agent_run_id: UUID,
+        workspace_path: Path,
+        execution: ExecutionResult,
+    ) -> TestRun:
+        ...
+
+
 class OrchestrationDependencies:
     def __init__(
         self,
@@ -188,6 +258,7 @@ class OrchestrationDependencies:
         workspace: WorkspaceProtocol,
         repository_source: RepositorySourceProtocol,
         persistence: TaskPersistenceProtocol,
+        artifacts: ArtifactPersistenceProtocol | None = None,
     ) -> None:
         self.planner = planner
         self.implementer = implementer
@@ -201,3 +272,4 @@ class OrchestrationDependencies:
         self.workspace = workspace
         self.repository_source = repository_source
         self.persistence = persistence
+        self.artifacts = artifacts

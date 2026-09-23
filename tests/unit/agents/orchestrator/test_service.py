@@ -145,6 +145,8 @@ class FakeDebugger:
         self,
         workspace_path: Path,
         context: ImplementationContext,
+        *,
+        task_id: UUID | None = None,
     ) -> DebuggerResult:
         self.calls += 1
 
@@ -772,6 +774,8 @@ async def test_debugger_changes_are_forwarded_to_pull_request() -> None:
             self,
             workspace_path: Path,
             context: ImplementationContext,
+            *,
+            task_id: UUID | None = None,
         ) -> DebuggerResult:
             return SimpleNamespace(
                 status=DebuggerStatus.FIXED,
